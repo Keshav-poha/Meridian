@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MERIDIAN live telemetry",
+  "type": "object",
+  "required": ["timestamp_s", "mode", "position", "motion", "gnss", "metrics"],
+  "properties": {
+    "timestamp_s": {"type": "number"},
+    "mode": {"enum": ["gnss_aided_ins", "dead_reckoning", "reacquiring"]},
+    "position": {
+      "type": "object",
+      "required": ["latitude_deg", "longitude_deg", "east_m", "north_m", "heading_deg"],
+      "properties": {
+        "latitude_deg": {"type": "number"},
+        "longitude_deg": {"type": "number"},
+        "east_m": {"type": "number"},
+        "north_m": {"type": "number"},
+        "heading_deg": {"type": "number"}
+      }
+    },
+    "motion": {
+      "type": "object",
+      "required": ["speed_mps", "accelerometer_mps2", "gyroscope_rps", "magnetometer_ut"],
+      "properties": {
+        "speed_mps": {"type": "number"},
+        "accelerometer_mps2": {"$ref": "#/$defs/vector3"},
+        "gyroscope_rps": {"$ref": "#/$defs/vector3"},
+        "magnetometer_ut": {"$ref": "#/$defs/vector3"}
+      }
+    },
+    "gnss": {
+      "type": "object",
+      "required": ["available", "latitude_deg", "longitude_deg", "accuracy_m"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "latitude_deg": {"type": ["number", "null"]},
+        "longitude_deg": {"type": ["number", "null"]},
+        "accuracy_m": {"type": ["number", "null"]}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["position_error_m", "drift_percent", "dr_distance_m", "seconds_since_gnss"],
+      "properties": {
+        "position_error_m": {"type": "number"},
+        "drift_percent": {"type": "number"},
+        "dr_distance_m": {"type": "number"},
+        "seconds_since_gnss": {"type": "number"}
+      }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      }
+    }
+  }
+}

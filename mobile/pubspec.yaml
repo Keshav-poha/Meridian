@@ -1,0 +1,25 @@
+name: meridian
+description: GPS-denied navigation client for the MERIDIAN IDR system.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_map: ^7.0.2
+  geolocator: ^13.0.2
+  sensors_plus: ^6.1.1
+  provider: ^6.1.2
+  tflite_flutter: ^0.11.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

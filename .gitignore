@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# ML data and generated artifacts
+data/
+ml/data/
+ml/artifacts/
+ml/reports/
+edge/artifacts/
+
+# Flutter/Dart
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+mobile/build/
+mobile/.packages
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

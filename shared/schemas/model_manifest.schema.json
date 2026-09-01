@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MERIDIAN portable model manifest",
+  "type": "object",
+  "required": ["contract_version", "model_name", "format", "input", "output", "normalization"],
+  "properties": {
+    "contract_version": {"type": "string"},
+    "model_name": {"type": "string"},
+    "format": {"enum": ["onnx", "tflite", "pytorch"]},
+    "input": {
+      "type": "object",
+      "required": ["shape", "channels"],
+      "properties": {
+        "shape": {"type": "array", "items": {"type": "integer"}},
+        "channels": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "output": {"type": "object"},
+    "normalization": {"type": "object"}
+  }
+}

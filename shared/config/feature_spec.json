@@ -1,0 +1,41 @@
+{
+  "contract_version": "0.1.0",
+  "coordinate_frames": {
+    "phone_body": "x_right_y_up_z_screen_normal",
+    "vehicle": "x_forward_y_right_z_down",
+    "navigation": "local_enu_meters"
+  },
+  "time": {
+    "timestamp_field": "timestamp_s",
+    "window_seconds": 2.0,
+    "sample_rate_hz": 100,
+    "stride_samples": 20
+  },
+  "input_channels": [
+    "accel_x_mps2",
+    "accel_y_mps2",
+    "accel_z_mps2",
+    "gyro_x_rps",
+    "gyro_y_rps",
+    "gyro_z_rps",
+    "mag_x_ut",
+    "mag_y_ut",
+    "mag_z_ut"
+  ],
+  "derived_features": [
+    "accel_norm_mps2",
+    "gyro_norm_rps",
+    "yaw_rate_rps",
+    "linear_accel_forward_mps2"
+  ],
+  "labels": [
+    "forward_speed_mps",
+    "heading_rad",
+    "position_east_m",
+    "position_north_m"
+  ],
+  "normalization": {
+    "method": "training_split_zscore",
+    "epsilon": 1e-06
+  }
+}

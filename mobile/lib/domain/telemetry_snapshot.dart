@@ -1,0 +1,42 @@
+/// Shared live/replay data bound to the Developer Mode and navigation UI.
+/// Keep its JSON names aligned with shared/schemas/telemetry.schema.json.
+enum NavigationMode { gnssAidedIns, deadReckoning, reacquiring }
+
+class Axis3 {
+  const Axis3(this.x, this.y, this.z);
+  final double x;
+  final double y;
+  final double z;
+}
+
+class TelemetrySnapshot {
+  const TelemetrySnapshot({
+    required this.timestamp,
+    required this.mode,
+    required this.speedMps,
+    required this.headingDeg,
+    required this.latitudeDeg,
+    required this.longitudeDeg,
+    required this.accuracyM,
+    required this.positionErrorM,
+    required this.driftPercent,
+    required this.accelerometer,
+    required this.gyroscope,
+    required this.magnetometer,
+    required this.gnssAvailable,
+  });
+
+  final DateTime timestamp;
+  final NavigationMode mode;
+  final double speedMps;
+  final double headingDeg;
+  final double latitudeDeg;
+  final double longitudeDeg;
+  final double accuracyM;
+  final double positionErrorM;
+  final double driftPercent;
+  final Axis3 accelerometer;
+  final Axis3 gyroscope;
+  final Axis3 magnetometer;
+  final bool gnssAvailable;
+}
