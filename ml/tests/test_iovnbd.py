@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from idr_ml.calibration import estimate_mount_calibration
 from idr_ml.iovnbd import build_fixed_windows, load_synchronized_pair
 from idr_ml.plotting import write_stage2_sanity_svg
 
@@ -58,6 +59,30 @@ class IOVNBDPipelineTest(unittest.TestCase):
             self.assertTrue(output.exists())
         self.assertEqual(windows.features.shape[1:], (20, 9))
         self.assertEqual(windows.labels.shape[1], 4)
+
+    def test_calibration_recovers_heading_offset(self) -> None:
+        # A lateral vehicle acceleration of 2 m/s² at mount yaw +0.4 rad is
+        # observed as R(-0.4)[0, 2] in the levelled phone frame.
+        phone_x, phone_y = 2.0 * __import__("math").sin(0.4), 2.0 * __import__("math").cos(0.4)
+        frame = pd.DataFrame(
+            {
+                "timestamp_s": [i * 0.1 for i in range(50)],
+                "gravity_x_mps2": [0.0] * 50,
+                "gravity_y_mps2": [0.0] * 50,
+                "gravity_z_mps2": [9.81] * 50,
+                "accel_x_mps2": [0.0] * 25 + [phone_x] * 25,
+                "accel_y_mps2": [0.0] * 25 + [phone_y] * 25,
+                "accel_z_mps2": [9.81] * 50,
+                "gt_speed_mps": [10.0] * 50,
+                "gt_heading_rad": [1.2] * 50,
+                "phone_yaw_deg": [45.84] * 50,
+                "gt_yaw_rate_rps": [0.0] * 25 + [0.2] * 25,
+            }
+        )
+        result = estimate_mount_calibration(frame, min_idle_samples=20, min_turning_samples=20)
+        self.assertLess(result.static_gravity_residual_deg, 1e-6)
+        self.assertGreater(result.dynamic_turn_correlation, 0.99)
+        self.assertAlmostEqual(result.yaw_rad, 0.4, places=2)
 
 
 if __name__ == "__main__":

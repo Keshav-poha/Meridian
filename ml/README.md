@@ -23,3 +23,12 @@ $env:PYTHONPATH = 'ml\\src'
 ```
 
 Generated raw data and reports remain beneath ignored folders in this directory.
+
+## Stage 3 calibration command
+
+```powershell
+$env:PYTHONPATH = 'ml\\src'
+& $idrPython ml/scripts/stage3_calibrate.py `
+  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
+  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+```

@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | 1 | Repository scaffold and shared contracts | Complete | Contract is valid JSON and all target roots exist. |
 | 2 | IO-VNBD ingestion, synchronization, and sanity plot | Complete | `M (Driver B)` 5,000-row source subset yields 4,999 synchronized 10 Hz samples, 2,490 2-second windows (`20 × 9`), and `ml/reports/stage2/sanity.svg`. |
-| 3 | Static/dynamic mounting calibration | Pending | Idle and turn segments produce a finite body-to-vehicle orientation. |
+| 3 | Static/dynamic mounting calibration | Complete | Driver B fit uses 27 idle and 3,337 turn samples: gravity residual 0.00°, roll 0.02°, pitch −0.04°, yaw 48.99°, turn-kinematics correlation 0.467. |
 | 4 | Classical strapdown DR plus NHC | Pending | Replay reports drift metres and drift percent against ground truth. |
 | 5 | Learn velocity estimator | Pending | Held-out speed error is compared with classical implied speed. |
 | 6 | Use learned speed in DR | Pending | Same blackout segments report comparable drift. |
