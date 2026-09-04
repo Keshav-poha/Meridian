@@ -150,3 +150,28 @@ def save_velocity_artifact(model: Any, normalization: dict[str, np.ndarray], out
     destination.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), destination / "velocity_cnn.pt")
     np.savez(destination / "normalization.npz", **normalization)
+
+
+def load_velocity_artifact(artifact_dir: str | Path) -> tuple[Any, dict[str, np.ndarray]]:
+    """Load the compact model and preprocessing captured at Stage 5."""
+    torch = _torch()
+    source = Path(artifact_dir)
+    Model = _model_class()
+    model = Model()
+    model.load_state_dict(torch.load(source / "velocity_cnn.pt", map_location="cpu", weights_only=True))
+    model.eval()
+    with np.load(source / "normalization.npz") as data:
+        normalization = {key: data[key] for key in data.files}
+    return model, normalization
+
+
+def predict_velocity_cnn(model: Any, features: np.ndarray, normalization: dict[str, np.ndarray]) -> np.ndarray:
+    """Predict speed at each window endpoint from unnormalized IMU windows."""
+    torch = _torch()
+    values = np.asarray(features, dtype=np.float32)
+    mean = np.asarray(normalization["feature_mean"], dtype=np.float32).reshape(1, 1, -1)
+    std = np.asarray(normalization["feature_std"], dtype=np.float32).reshape(1, 1, -1)
+    normalized = ((values - mean) / np.maximum(std, 1e-4)).transpose(0, 2, 1)
+    with torch.no_grad():
+        output = model(torch.from_numpy(normalized)).cpu().numpy()
+    return output * float(normalization["target_std"]) + float(normalization["target_mean"])

@@ -7,7 +7,7 @@
 | 3 | Static/dynamic mounting calibration | Complete | Driver B fit uses 27 idle and 3,337 turn samples: gravity residual 0.00°, roll 0.02°, pitch −0.04°, yaw 48.99°, turn-kinematics correlation 0.467. |
 | 4 | Classical strapdown DR plus NHC | Complete | Driver B 60-second blackout: 394.6 m travelled, 846.9 m end error, 214.6% drift, 10 Hz. This deliberate no-ML baseline is the number Stage 6 must beat. |
 | 5 | Learn velocity estimator | Complete | 961-parameter 1-D CNN on Driver B temporal split: 2.58 m/s test MAE versus 10.18 m/s classical implied-speed MAE. |
-| 6 | Use learned speed in DR | Pending | Same blackout segments report comparable drift. |
+| 6 | Use learned speed in DR | Complete | On the held-out 60-second blackout, learned speed reduces end error from 460.8 m (68.1%) to 84.6 m (12.5%) at 10 Hz. |
 | 7 | OSM map matching | Pending | Map-matched trajectory error is compared with raw DR. |
 | 8 | GNSS+INS fusion and masked outages | Pending | Blackout metrics are evaluated against the 10% drift target. |
 | 9 | Mode-switch blending | Pending | Transition latency and discontinuity are logged. |

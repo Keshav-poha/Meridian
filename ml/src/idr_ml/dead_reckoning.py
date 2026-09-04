@@ -124,6 +124,64 @@ def classical_nhc_dead_reckoning(
     )
 
 
+def learned_velocity_nhc_dead_reckoning(
+    frame: pd.DataFrame,
+    calibration: CalibrationResult,
+    model: Any,
+    normalization: dict[str, np.ndarray],
+) -> DeadReckoningResult:
+    """NHC replay using Stage 5 CNN speed while retaining classical heading.
+
+    The first model window (2 seconds at the declared model rate) starts from
+    the last GNSS-aided speed. Thereafter no GNSS/ground-truth speed is read.
+    """
+    from .velocity_model import predict_velocity_cnn
+
+    required = {
+        "timestamp_s", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
+        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "gt_speed_mps", "gt_heading_rad",
+    }
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"learned DR frame missing: {sorted(missing)}")
+    timestamp = frame.timestamp_s.to_numpy(dtype=float)
+    dt = np.diff(timestamp, prepend=timestamp[0])
+    nominal_dt = float(np.median(dt[dt > 0]))
+    dt[0] = nominal_dt
+    rate = float(np.asarray(normalization["sample_rate_hz"]))
+    window_samples = round(2.0 * rate)
+    if len(frame) < window_samples:
+        raise ValueError("blackout is shorter than one learned-velocity window")
+    channels = [
+        "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
+        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "mag_x_ut", "mag_y_ut", "mag_z_ut",
+    ]
+    raw_windows = np.stack(
+        [frame.loc[index - window_samples + 1 : index, channels].to_numpy(np.float32) for index in range(window_samples - 1, len(frame))]
+    )
+    predicted_tail = np.maximum(0.0, predict_velocity_cnn(model, raw_windows, normalization))
+    speed = np.empty(len(frame), dtype=float)
+    speed[: window_samples - 1] = max(0.0, float(frame.gt_speed_mps.iloc[0]))
+    speed[window_samples - 1 :] = predicted_tail
+
+    raw_gyro = frame[["gyro_x_rps", "gyro_y_rps", "gyro_z_rps"]].to_numpy(dtype=float)
+    vehicle_gyro = apply_mount_rotation(raw_gyro, calibration)
+    idle = frame.gt_speed_mps.to_numpy(dtype=float) <= 0.5
+    gyro_bias = float(np.median(vehicle_gyro[idle, 2])) if int(idle.sum()) >= 5 else 0.0
+    heading = np.empty(len(frame), dtype=float)
+    east, north = np.zeros(len(frame), dtype=float), np.zeros(len(frame), dtype=float)
+    heading[0] = float(frame.gt_heading_rad.iloc[0])
+    for index in range(1, len(frame)):
+        heading[index] = float(wrap_angle(heading[index - 1] + (vehicle_gyro[index, 2] - gyro_bias) * dt[index]))
+        distance = 0.5 * (speed[index - 1] + speed[index]) * dt[index]
+        east[index] = east[index - 1] + distance * math.sin(heading[index])
+        north[index] = north[index - 1] + distance * math.cos(heading[index])
+    return DeadReckoningResult(
+        timestamp_s=timestamp.tolist(), east_m=east.tolist(), north_m=north.tolist(),
+        speed_mps=speed.tolist(), heading_rad=heading.tolist(), gyro_z_bias_rps=gyro_bias,
+    )
+
+
 def measure_drift(frame: pd.DataFrame, result: DeadReckoningResult) -> DriftMetrics:
     """Measure classical DR against held-out ground truth for one blackout."""
     expected = {"gt_latitude_deg", "gt_longitude_deg", "timestamp_s"}

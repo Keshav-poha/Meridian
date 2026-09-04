@@ -54,3 +54,12 @@ $env:PYTHONPATH = 'ml/.vendor;ml/src'
   --smartphone ml/data/raw/iovnbd_m/S-M.csv `
   --vehicle ml/data/raw/iovnbd_m/V-M.csv
 ```
+
+## Stage 6 learned-speed DR command
+
+```powershell
+$env:PYTHONPATH = 'ml/.vendor;ml/src'
+& $idrPython ml/scripts/stage6_learned_velocity_dr.py `
+  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
+  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+```
