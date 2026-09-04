@@ -9,7 +9,7 @@
 | 5 | Learn velocity estimator | Complete | 961-parameter 1-D CNN on Driver B temporal split: 2.58 m/s test MAE versus 10.18 m/s classical implied-speed MAE. |
 | 6 | Use learned speed in DR | Complete | On the held-out 60-second blackout, learned speed reduces end error from 460.8 m (68.1%) to 84.6 m (12.5%) at 10 Hz. |
 | 7 | OSM map matching | Complete | Cached 1,438-segment OSM extract plus Viterbi HMM reduces held-out endpoint error from 84.55 m to 83.69 m (12.49% to 12.36% drift). |
-| 8 | GNSS+INS fusion and masked outages | Pending | Blackout metrics are evaluated against the 10% drift target. |
+| 8 | GNSS+INS fusion and masked outages | Complete | Held-out 60-second GNSS mask: 676.9 m travelled, 47.35 m end error, 6.99% drift at 10 Hz — passes the <10% target. |
 | 9 | Mode-switch blending | Pending | Transition latency and discontinuity are logged. |
 | 10 | TFLite/ONNX export and target stubs | Pending | Mobile and edge contract checks load the exported model. |
 | 11 | Flutter MERIDIAN UI | Pending | Every specified state is reachable and developer telemetry is live. |
