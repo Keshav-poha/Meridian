@@ -98,3 +98,19 @@ py -3.13 ml/scripts/stage10_export.py
 `shared/models/velocity_cnn.normalization.json` is the single preprocessing
 artifact consumed by both targets. ONNX accepts `[batch, channel, time]`; the
 TFLite asset accepts the equivalent `[batch, time, channel]` layout.
+
+## Stage 12 reproducible evaluation
+
+This is the final offline deliverable. It replays the held-out 60-second Driver
+B GNSS blackout, writes the trajectory figure and metrics table under the
+tracked `docs/evaluation/stage12/` folder, and exits non-zero if the fusion
+drift threshold is missed.
+
+```powershell
+$env:PYTHONPATH = 'ml/.vendor;ml/src'
+py -3.13 ml/scripts/stage12_evaluate.py
+```
+
+The committed result contains the local-ENU position plot, the sample-level
+trajectory, a CSV comparison of classical/learned/fused runs, and a machine-
+readable JSON report.

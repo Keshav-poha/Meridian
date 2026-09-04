@@ -11,7 +11,7 @@ from idr_ml.calibration import CalibrationResult, estimate_mount_calibration
 from idr_ml.dead_reckoning import classical_nhc_dead_reckoning, measure_drift
 from idr_ml.map_matching import RoadGraph, RoadSegment, hmm_map_match
 from idr_ml.iovnbd import build_fixed_windows, load_synchronized_pair
-from idr_ml.plotting import write_stage2_sanity_svg
+from idr_ml.plotting import write_stage2_sanity_svg, write_trajectory_svg
 
 
 class IOVNBDPipelineTest(unittest.TestCase):
@@ -129,6 +129,22 @@ class IOVNBDPipelineTest(unittest.TestCase):
         east, north = hmm_map_match(graph, np.array([0.0, 20.0, 40.0]), np.array([2.0, 1.0, 3.0]))
         self.assertTrue(np.allclose(east, [0.0, 20.0, 40.0]))
         self.assertTrue(np.allclose(north, 0.0))
+
+    def test_trajectory_plot_is_written_with_multiple_traces(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = write_trajectory_svg(
+                [
+                    ("ground truth", np.array([0.0, 3.0]), np.array([0.0, 4.0]), "#00ff00"),
+                    ("prediction", np.array([0.0, 2.0]), np.array([0.0, 4.0]), "#0088ff"),
+                ],
+                Path(directory) / "trajectory.svg",
+                title="test trajectory",
+                subtitle="test data",
+            )
+            self.assertTrue(output.exists())
+            content = output.read_text(encoding="utf-8")
+        self.assertIn("ground truth", content)
+        self.assertIn("prediction", content)
 
 
 if __name__ == "__main__":

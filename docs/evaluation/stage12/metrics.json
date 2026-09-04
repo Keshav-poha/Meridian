@@ -1,0 +1,51 @@
+{
+  "stage": 12,
+  "dataset": "IO-VNBD M (Driver B)",
+  "split": "held-out timestamp interval",
+  "gnss_blackout": {
+    "start_seconds": 430.0,
+    "duration_seconds": 60.0
+  },
+  "pre_outage_history_seconds": 60.0,
+  "sample_rate_hz": 9.999999999997726,
+  "residual": {
+    "speed_scale": 0.9,
+    "speed_bias_mps": 0.0,
+    "yaw_scale": 1.0,
+    "yaw_bias_rps": 0.0,
+    "history_samples": 601
+  },
+  "acceptance": {
+    "max_drift_percent": 10.0,
+    "observed_drift_percent": 6.994574377430823,
+    "passes": true
+  },
+  "metrics": {
+    "classical_nhc": {
+      "distance_travelled_m": 676.9153243675794,
+      "end_position_error_m": 460.8426028712471,
+      "trajectory_rmse_m": 225.73387932389366,
+      "drift_percent": 68.0798005720727,
+      "update_rate_hz": 9.999999999997726
+    },
+    "learned_speed_nhc": {
+      "distance_travelled_m": 676.9153243675794,
+      "end_position_error_m": 84.55326340537749,
+      "trajectory_rmse_m": 35.75377991740459,
+      "drift_percent": 12.49096605758969,
+      "update_rate_hz": 9.999999999997726
+    },
+    "masked_gnss_adaptive_fusion": {
+      "distance_travelled_m": 676.9153243675794,
+      "end_position_error_m": 47.34734583511745,
+      "trajectory_rmse_m": 36.79501843921936,
+      "drift_percent": 6.994574377430823,
+      "update_rate_hz": 9.999999999997726
+    }
+  },
+  "artifacts": {
+    "position_plot": "position_plot.svg",
+    "metrics_table": "metrics.csv",
+    "trajectory": "trajectory.csv"
+  }
+}

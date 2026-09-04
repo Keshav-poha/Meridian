@@ -64,3 +64,82 @@ def write_stage2_sanity_svg(frame: pd.DataFrame, output_path: str | Path) -> Pat
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(svg, encoding="utf-8")
     return output
+
+
+def write_trajectory_svg(
+    traces: list[tuple[str, np.ndarray, np.ndarray, str]],
+    output_path: str | Path,
+    *,
+    title: str,
+    subtitle: str,
+) -> Path:
+    """Write a self-contained, consistently scaled local-ENU trajectory plot.
+
+    An SVG keeps the evaluation deliverable portable and reproducible without a
+    desktop plotting dependency. Every trace uses the same scale, so endpoint
+    drift remains visually comparable to the ground-truth path.
+    """
+    if not traces:
+        raise ValueError("trajectory plot needs at least one trace")
+    prepared: list[tuple[str, np.ndarray, np.ndarray, str]] = []
+    for name, east, north, color in traces:
+        east_values, north_values = np.asarray(east, dtype=float), np.asarray(north, dtype=float)
+        if len(east_values) < 2 or len(east_values) != len(north_values):
+            raise ValueError(f"trace {name!r} must contain equally-sized east/north arrays")
+        if not np.isfinite(east_values).all() or not np.isfinite(north_values).all():
+            raise ValueError(f"trace {name!r} contains non-finite coordinates")
+        prepared.append((name, east_values, north_values, color))
+
+    all_east = np.concatenate([east for _, east, _, _ in prepared])
+    all_north = np.concatenate([north for _, _, north, _ in prepared])
+    east_low, east_high = float(np.min(all_east)), float(np.max(all_east))
+    north_low, north_high = float(np.min(all_north)), float(np.max(all_north))
+    span = max(east_high - east_low, north_high - north_low, 1.0)
+    pad = 0.08 * span
+    east_low, east_high = east_low - pad, east_high + pad
+    north_low, north_high = north_low - pad, north_high + pad
+    plot_left, plot_right, plot_top, plot_bottom = 90.0, 915.0, 120.0, 530.0
+
+    def project(east: np.ndarray, north: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        x = plot_left + (east - east_low) * (plot_right - plot_left) / (east_high - east_low)
+        y = plot_bottom - (north - north_low) * (plot_bottom - plot_top) / (north_high - north_low)
+        return x, y
+
+    trace_markup: list[str] = []
+    legend_markup: list[str] = []
+    for index, (name, east, north, color) in enumerate(prepared):
+        x, y = project(east, north)
+        trace_markup.append(
+            f'<polyline points="{_polyline(x, y)}" fill="none" stroke="{escape(color)}" '
+            f'stroke-width="{3.2 if index == 0 else 2.4}" stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        if index == 0:
+            trace_markup.append(f'<circle cx="{x[0]:.2f}" cy="{y[0]:.2f}" r="5" fill="#35d07f"/>')
+        trace_markup.append(f'<circle cx="{x[-1]:.2f}" cy="{y[-1]:.2f}" r="5" fill="{escape(color)}"/>')
+        legend_y = 74 + 24 * index
+        legend_markup.append(
+            f'<line x1="{590}" y1="{legend_y}" x2="{615}" y2="{legend_y}" stroke="{escape(color)}" stroke-width="3"/>'
+            f'<text x="623" y="{legend_y + 5}" class="label">{escape(name)}</text>'
+        )
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600" viewBox="0 0 1000 600">
+  <rect width="1000" height="600" fill="#070A0F"/>
+  <style>text{{font-family:Arial,sans-serif;fill:#dce7f4}} .title{{font-size:21px;font-weight:bold}} .subtitle,.axis{{font-size:13px;fill:#8ea2b6}} .label{{font-size:13px}} .grid{{stroke:#243545;stroke-width:1}}</style>
+  <text x="48" y="42" class="title">{escape(title)}</text>
+  <text x="48" y="66" class="subtitle">{escape(subtitle)}</text>
+  <rect x="{plot_left}" y="{plot_top}" width="{plot_right - plot_left}" height="{plot_bottom - plot_top}" rx="10" fill="#0f1822" stroke="#33485d"/>
+  <line x1="{plot_left}" y1="{plot_bottom}" x2="{plot_right}" y2="{plot_bottom}" class="grid"/>
+  <line x1="{plot_left}" y1="{plot_top}" x2="{plot_left}" y2="{plot_bottom}" class="grid"/>
+  {''.join(trace_markup)}
+  <text x="{plot_right - 40}" y="{plot_bottom + 30}" class="axis">east (m)</text>
+  <text x="{plot_left - 55}" y="{plot_top + 16}" class="axis">north (m)</text>
+  <text x="{plot_left}" y="{plot_bottom + 30}" class="axis">{east_low:.0f}</text>
+  <text x="{plot_right - 20}" y="{plot_bottom + 30}" class="axis">{east_high:.0f}</text>
+  <text x="{plot_left - 45}" y="{plot_bottom}" class="axis">{north_low:.0f}</text>
+  <text x="{plot_left - 45}" y="{plot_top + 5}" class="axis">{north_high:.0f}</text>
+  {''.join(legend_markup)}
+</svg>'''
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(svg, encoding="utf-8")
+    return output
