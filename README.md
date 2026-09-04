@@ -16,7 +16,7 @@ MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead R
 - All timestamps are UTC epoch seconds, stored as `timestamp_s`.
 - IMU vectors use the phone body frame: `x` right, `y` up, `z` toward the user/screen normal. The calibration stage produces the body-to-vehicle rotation.
 - Vehicle frame is `x` forward, `y` right, `z` down. Navigation output is local ENU meters anchored at the first valid ground-truth/GNSS fix.
-- Model inputs are fixed 2.0-second, 100 Hz windows. The contract lives in `shared/config/feature_spec.json`; it is the source of truth for Python, Dart, and edge implementations.
+- Model inputs are fixed 2.0-second, 10 Hz windows to preserve IO-VNBD's measured signal. Mobile (100 Hz) and edge (200 Hz) adapters filter/aggregate their live streams to that contract; their fusion loops continue at native rate. The contract lives in `shared/config/feature_spec.json`.
 
 ## Staged execution
 

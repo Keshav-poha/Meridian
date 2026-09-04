@@ -41,3 +41,16 @@ $env:PYTHONPATH = 'ml\\src'
   --smartphone ml/data/raw/iovnbd_m/S-M.csv `
   --vehicle ml/data/raw/iovnbd_m/V-M.csv
 ```
+
+## Stage 5 velocity-model command
+
+Install the project-local CPU PyTorch dependency once, then train and compare
+the temporal held-out split with the Stage 4 classical implied speed:
+
+```powershell
+& $idrPython -m pip install --target ml/.vendor torch --index-url https://download.pytorch.org/whl/cpu
+$env:PYTHONPATH = 'ml/.vendor;ml/src'
+& $idrPython ml/scripts/stage5_train_velocity.py `
+  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
+  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+```

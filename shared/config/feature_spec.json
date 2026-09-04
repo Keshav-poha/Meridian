@@ -8,8 +8,12 @@
   "time": {
     "timestamp_field": "timestamp_s",
     "window_seconds": 2.0,
-    "sample_rate_hz": 100,
-    "stride_samples": 20
+    "sample_rate_hz": 10,
+    "stride_samples": 2,
+    "runtime_input_rate_hz": {
+      "mobile": 100,
+      "edge": 200
+    }
   },
   "input_channels": [
     "accel_x_mps2",
