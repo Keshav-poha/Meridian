@@ -32,3 +32,12 @@ $env:PYTHONPATH = 'ml\\src'
   --smartphone ml/data/raw/iovnbd_m/S-M.csv `
   --vehicle ml/data/raw/iovnbd_m/V-M.csv
 ```
+
+## Stage 4 baseline DR command
+
+```powershell
+$env:PYTHONPATH = 'ml\\src'
+& $idrPython ml/scripts/stage4_baseline_dr.py `
+  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
+  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+```
