@@ -5,9 +5,11 @@ import unittest
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from idr_ml.calibration import CalibrationResult, estimate_mount_calibration
 from idr_ml.dead_reckoning import classical_nhc_dead_reckoning, measure_drift
+from idr_ml.map_matching import RoadGraph, RoadSegment, hmm_map_match
 from idr_ml.iovnbd import build_fixed_windows, load_synchronized_pair
 from idr_ml.plotting import write_stage2_sanity_svg
 
@@ -116,6 +118,17 @@ class IOVNBDPipelineTest(unittest.TestCase):
         metrics = measure_drift(frame, result)
         self.assertLess(metrics.end_position_error_m, 0.01)
         self.assertAlmostEqual(metrics.update_rate_hz, 10.0, places=5)
+
+    def test_hmm_map_matching_projects_to_continuous_road(self) -> None:
+        graph = RoadGraph(
+            [
+                RoadSegment(np.array([0.0, 0.0]), np.array([100.0, 0.0]), 1),
+                RoadSegment(np.array([0.0, 20.0]), np.array([100.0, 20.0]), 2),
+            ]
+        )
+        east, north = hmm_map_match(graph, np.array([0.0, 20.0, 40.0]), np.array([2.0, 1.0, 3.0]))
+        self.assertTrue(np.allclose(east, [0.0, 20.0, 40.0]))
+        self.assertTrue(np.allclose(north, 0.0))
 
 
 if __name__ == "__main__":

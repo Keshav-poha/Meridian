@@ -63,3 +63,12 @@ $env:PYTHONPATH = 'ml/.vendor;ml/src'
   --smartphone ml/data/raw/iovnbd_m/S-M.csv `
   --vehicle ml/data/raw/iovnbd_m/V-M.csv
 ```
+
+## Stage 7 OSM map-matching command
+
+```powershell
+$env:PYTHONPATH = 'ml/.vendor;ml/src'
+& $idrPython ml/scripts/stage7_map_match.py `
+  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
+  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+```
