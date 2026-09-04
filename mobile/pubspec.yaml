@@ -23,3 +23,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/models/velocity_cnn.tflite
+    - assets/models/velocity_cnn.normalization.json
+    - assets/models/velocity_cnn.tflite.manifest.json
