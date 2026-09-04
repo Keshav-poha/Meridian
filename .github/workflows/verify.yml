@@ -1,0 +1,60 @@
+name: Verify MERIDIAN
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python-contracts-and-edge:
+    name: Python contracts, ML units, and edge units
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            ml/pyproject.toml
+            edge/python/pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ./ml -e ./edge/python
+      - name: Validate shared contract
+        env:
+          PYTHONPATH: ml/src
+        run: python -m idr_ml.validate_contract
+      - name: Run ML unit tests
+        env:
+          PYTHONPATH: ml/src
+        run: python -m unittest discover -s ml/tests -v
+      - name: Run edge unit tests
+        env:
+          PYTHONPATH: edge/python/src
+        run: python -m unittest discover -s edge/python/tests -v
+
+  flutter-android:
+    name: Flutter analysis, tests, and Android debug build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+      - name: Fetch Flutter packages
+        working-directory: mobile
+        run: flutter pub get
+      - name: Analyze Flutter app
+        working-directory: mobile
+        run: flutter analyze
+      - name: Run Flutter unit tests
+        working-directory: mobile
+        run: flutter test
+      - name: Build Android debug APK
+        working-directory: mobile
+        run: flutter build apk --debug

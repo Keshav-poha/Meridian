@@ -2,6 +2,11 @@
 
 MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead Reckoning (IDR) system. It replays and trains on IO-VNBD driving data, builds a GNSS-aided/dead-reckoning trajectory, and exposes the same inference contract to a Flutter mobile app and a portable edge runtime.
 
+The complete offline pipeline is implemented. Its held-out 60-second IO-VNBD
+Driver B GNSS blackout ends at **47.35 m error over 676.92 m (6.99% drift) at
+10 Hz**, passing the required less-than-10-percent drift target. See the
+[position plot and metrics table](docs/evaluation/stage12/README.md).
+
 ## Repository layout
 
 | Directory | Responsibility |
@@ -10,6 +15,7 @@ MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead R
 | `mobile/` | Flutter MERIDIAN app and the on-device sensor/inference adapters. |
 | `edge/` | Portable Python reference runtime and C++/ONNX Runtime hand-off point. |
 | `shared/` | Versioned feature, telemetry, and model-manifest contracts used by both targets. |
+| `docs/` | Stage status, reproducible evaluation artifacts, and tracked test results. |
 
 ## Canonical coordinate and time conventions
 
@@ -23,3 +29,19 @@ MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead R
 Implementation follows the numbered milestones requested in the problem statement. Each runnable stage writes its metric report to `ml/reports/` and fails loudly when its acceptance check cannot be evaluated. Stage progress is tracked in [`docs/STAGE_STATUS.md`](docs/STAGE_STATUS.md).
 
 The current local runtime is intentionally dependency-light. Install the optional packages in `ml/requirements.txt` before running model training or PNG plotting. The first ingestion stage includes an SVG plot fallback so its sanity check can run without matplotlib.
+
+## Verification
+
+The repository has a GitHub Actions workflow for Python contracts, ML/edge unit
+tests, Flutter analysis, Flutter tests, and an Android debug APK build. Local
+commands and the latest verified outcomes are listed in
+[`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md). The data-backed Stage 12 replay
+is reproducible with `py -3.13 ml/scripts/stage12_evaluate.py` after the
+documented dataset/model setup.
+
+## Validation boundary
+
+Offline IO-VNBD replay and package compilation are complete. Live-device
+validation remains separate: install the debug APK on an Android phone, grant
+location permission, inspect live Developer Mode telemetry, simulate a GNSS
+outage, and record the resulting comparison-card error and update rate.

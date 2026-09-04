@@ -1,0 +1,10 @@
+* text=auto
+
+*.py text eol=lf
+*.dart text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.csv text eol=lf
+*.svg text eol=lf

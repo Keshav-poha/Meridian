@@ -12,6 +12,7 @@ ml/data/
 ml/artifacts/
 ml/reports/
 edge/artifacts/
+tmp/
 
 # Flutter/Dart
 mobile/.dart_tool/
