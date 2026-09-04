@@ -24,6 +24,13 @@ class TelemetrySnapshot {
     required this.gyroscope,
     required this.magnetometer,
     required this.gnssAvailable,
+    required this.gnssEnabled,
+    required this.lastAccurateLatitudeDeg,
+    required this.lastAccurateLongitudeDeg,
+    required this.actualLatitudeDeg,
+    required this.actualLongitudeDeg,
+    required this.deadReckoningDistanceM,
+    required this.deadReckoningElapsed,
   });
 
   final DateTime timestamp;
@@ -39,4 +46,11 @@ class TelemetrySnapshot {
   final Axis3 gyroscope;
   final Axis3 magnetometer;
   final bool gnssAvailable;
+  final bool gnssEnabled;
+  final double? lastAccurateLatitudeDeg;
+  final double? lastAccurateLongitudeDeg;
+  final double? actualLatitudeDeg;
+  final double? actualLongitudeDeg;
+  final double deadReckoningDistanceM;
+  final Duration deadReckoningElapsed;
 }

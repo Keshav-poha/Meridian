@@ -34,7 +34,8 @@ class TfliteVelocityEstimator {
   StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
 
   static Future<TfliteVelocityEstimator> create() async {
-    final interpreter = await Interpreter.fromAsset('assets/models/velocity_cnn.tflite');
+    final interpreter =
+        await Interpreter.fromAsset('assets/models/velocity_cnn.tflite');
     final decoded = jsonDecode(await rootBundle.loadString(
       'assets/models/velocity_cnn.normalization.json',
     )) as Map<String, dynamic>;
@@ -67,7 +68,8 @@ class TfliteVelocityEstimator {
   /// Returns m/s when a full two-second window is ready, otherwise null.
   double? estimate() {
     if (_samples.length < 2 ||
-        _samples.last.timestamp.difference(_samples.first.timestamp) < _windowDuration) {
+        _samples.last.timestamp.difference(_samples.first.timestamp) <
+            _windowDuration) {
       return null;
     }
     final newest = _samples.last.timestamp;
@@ -76,30 +78,41 @@ class TfliteVelocityEstimator {
       1,
       (_) => List<List<double>>.generate(_windowSamples, (sampleIndex) {
         final target = start.add(Duration(
-          microseconds: ((_windowDuration.inMicroseconds * (sampleIndex + 1)) / _windowSamples).round(),
+          microseconds: ((_windowDuration.inMicroseconds * (sampleIndex + 1)) /
+                  _windowSamples)
+              .round(),
         ));
         final values = _interpolate(target);
         return List<double>.generate(
           9,
-          (channel) => (values[channel] - _mean[channel]) /
+          (channel) =>
+              (values[channel] - _mean[channel]) /
               _std[channel].clamp(1e-4, double.infinity).toDouble(),
           growable: false,
         );
       }, growable: false),
       growable: false,
     );
-    final output = List<List<double>>.filled(1, List<double>.filled(1, 0), growable: false);
+    final output = List<List<double>>.filled(1, List<double>.filled(1, 0),
+        growable: false);
     _interpreter.run(input, output);
     return output[0][0] * _targetStd + _targetMean;
   }
 
   void _append(DateTime timestamp) {
     _samples.add(_ImuReading(timestamp, <double>[
-      _accelerometer.x, _accelerometer.y, _accelerometer.z,
-      _gyroscope.x, _gyroscope.y, _gyroscope.z,
-      _magnetometer.x, _magnetometer.y, _magnetometer.z,
+      _accelerometer.x,
+      _accelerometer.y,
+      _accelerometer.z,
+      _gyroscope.x,
+      _gyroscope.y,
+      _gyroscope.z,
+      _magnetometer.x,
+      _magnetometer.y,
+      _magnetometer.z,
     ]));
-    final cutoff = timestamp.subtract(_windowDuration + const Duration(milliseconds: 100));
+    final cutoff =
+        timestamp.subtract(_windowDuration + const Duration(milliseconds: 100));
     _samples.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
   }
 
@@ -112,8 +125,11 @@ class TfliteVelocityEstimator {
         final fraction = span == 0
             ? 0.0
             : target.difference(left.timestamp).inMicroseconds / span;
-        return List<double>.generate(9,
-            (channel) => left.values[channel] + (right.values[channel] - left.values[channel]) * fraction);
+        return List<double>.generate(
+            9,
+            (channel) =>
+                left.values[channel] +
+                (right.values[channel] - left.values[channel]) * fraction);
       }
     }
     return _samples.last.values;
