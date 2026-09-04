@@ -11,6 +11,6 @@
 | 7 | OSM map matching | Complete | Cached 1,438-segment OSM extract plus Viterbi HMM reduces held-out endpoint error from 84.55 m to 83.69 m (12.49% to 12.36% drift). |
 | 8 | GNSS+INS fusion and masked outages | Complete | Held-out 60-second GNSS mask: 676.9 m travelled, 47.35 m end error, 6.99% drift at 10 Hz — passes the <10% target. |
 | 9 | Mode-switch blending | Complete | GNSS loss/reacquisition decision path: 0.026 ms maximum; correction blending preserves the normal 1.0 m / 10 Hz display step. |
-| 10 | TFLite/ONNX export and target stubs | Pending | Mobile and edge contract checks load the exported model. |
+| 10 | TFLite/ONNX export and target stubs | Complete | `shared/models` contains a 5,387-byte ONNX model and 10,276-byte float32 TFLite model. PyTorch parity error is ≤2.98e−8 (ONNX) and ≤1.49e−8 (TFLite); the Python ONNX Runtime reference sustains 3,005 Hz when fed a 200 Hz synthetic IMU stream. Flutter SDK is not installed on this workstation, so mobile compilation still needs device/CI validation. |
 | 11 | Flutter MERIDIAN UI | Pending | Every specified state is reachable and developer telemetry is live. |
 | 12 | Reproducible evaluation deliverable | Pending | Figure, metrics table, and update-rate report are generated. |

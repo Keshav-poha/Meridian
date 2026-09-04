@@ -81,3 +81,20 @@ $env:PYTHONPATH = 'ml/.vendor;ml/src'
   --smartphone ml/data/raw/iovnbd_m/S-M.csv `
   --vehicle ml/data/raw/iovnbd_m/V-M.csv
 ```
+
+## Stage 10 portable export command
+
+This exports the trained Stage 5 checkpoint to the versioned shared model
+directory and copies the mobile TFLite asset. The exporter checks ONNX and
+TFLite output against PyTorch, then profiles actual ONNX Runtime calls from a
+synthetic 200 Hz FOG-grade IMU stream.
+
+```powershell
+py -3.13 -m pip install --target ml/.vendor torch tensorflow onnx onnxruntime
+$env:PYTHONPATH = 'ml/.vendor;ml/src;edge/python/src'
+py -3.13 ml/scripts/stage10_export.py
+```
+
+`shared/models/velocity_cnn.normalization.json` is the single preprocessing
+artifact consumed by both targets. ONNX accepts `[batch, channel, time]`; the
+TFLite asset accepts the equivalent `[batch, time, channel]` layout.

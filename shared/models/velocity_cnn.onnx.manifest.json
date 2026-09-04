@@ -1,0 +1,36 @@
+{
+  "contract_version": "0.1.0",
+  "model_name": "tiny_velocity_cnn",
+  "model_file": "velocity_cnn.onnx",
+  "output": {
+    "name": "forward_speed_normalized",
+    "unit": "z_score",
+    "de_normalized_unit": "mps"
+  },
+  "normalization": {
+    "file": "velocity_cnn.normalization.json",
+    "method": "training_split_zscore"
+  },
+  "training_parameter_count": 961,
+  "format": "onnx",
+  "input": {
+    "name": "imu_window",
+    "shape": [
+      1,
+      9,
+      20
+    ],
+    "channels": [
+      "accel_x_mps2",
+      "accel_y_mps2",
+      "accel_z_mps2",
+      "gyro_x_rps",
+      "gyro_y_rps",
+      "gyro_z_rps",
+      "mag_x_ut",
+      "mag_y_ut",
+      "mag_z_ut"
+    ],
+    "layout": "batch_channel_time"
+  }
+}
