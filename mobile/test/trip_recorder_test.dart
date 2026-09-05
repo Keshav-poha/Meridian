@@ -49,4 +49,45 @@ void main() {
     final position = record['position'] as Map<String, Object?>;
     expect(position['east_m'], isNull);
   });
+
+  test('records a coarse GNSS bootstrap as display-only acquisition', () {
+    final record = TripLogEncoder.sample(
+      TelemetrySnapshot(
+        timestamp: DateTime.utc(2026, 9, 5, 12),
+        mode: NavigationMode.acquiring,
+        speedMps: 0,
+        modelSpeedMps: 0,
+        velocityModelTrusted: false,
+        mountCalibrated: false,
+        stationary: true,
+        vehicleMotionArmed: false,
+        headingDeg: 0,
+        latitudeDeg: 28.6139,
+        longitudeDeg: 77.209,
+        accuracyM: 70,
+        positionErrorM: double.nan,
+        driftPercent: double.nan,
+        accelerometer: const Axis3(0, 0, 9.8),
+        gyroscope: const Axis3(0, 0, 0),
+        magnetometer: const Axis3(22, -4, 41),
+        gnssAvailable: false,
+        gnssEnabled: true,
+        lastAccurateLatitudeDeg: null,
+        lastAccurateLongitudeDeg: null,
+        actualLatitudeDeg: 28.6139,
+        actualLongitudeDeg: 77.209,
+        deadReckoningDistanceM: 0,
+        deadReckoningElapsed: Duration.zero,
+        predictionConfidence: 0,
+        predictionConfidenceReason:
+            'High-accuracy location visible (70 m) — waiting for a fusion-quality fix',
+      ),
+      label: 'drive',
+    );
+
+    expect(record['mode'], 'acquiring_gnss');
+    final metrics = record['metrics'] as Map<String, Object?>;
+    expect(metrics['position_error_m'], isNull);
+    expect(metrics['prediction_confidence'], 0);
+  });
 }

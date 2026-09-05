@@ -1,6 +1,8 @@
 /// Shared live/replay data bound to the Developer Mode and navigation UI.
 /// Keep its JSON names aligned with shared/schemas/telemetry.schema.json.
-enum NavigationMode { gnssAidedIns, deadReckoning, reacquiring }
+/// `acquiring` has a real, display-only physical location but not yet a fix
+/// safe enough to initialise fusion, mount calibration, or dead reckoning.
+enum NavigationMode { acquiring, gnssAidedIns, deadReckoning, reacquiring }
 
 class Axis3 {
   const Axis3(this.x, this.y, this.z);

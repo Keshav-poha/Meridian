@@ -124,14 +124,17 @@ class NavigationScreen extends StatelessWidget {
     final controller = context.watch<NavigationController>();
     final snapshot = controller.snapshot;
     final isLost = snapshot?.mode == NavigationMode.deadReckoning;
+    final isAcquiring = snapshot?.mode == NavigationMode.acquiring;
     return Column(
       children: [
         MeridianTopBar(
           title: isLost
               ? 'GPS LOST'
-              : controller.routeEditorVisible
-                  ? 'NAVIGATION'
-                  : 'MERIDIAN',
+              : isAcquiring
+                  ? 'ACQUIRING GPS'
+                  : controller.routeEditorVisible
+                      ? 'NAVIGATION'
+                      : 'MERIDIAN',
           onSearch: controller.toggleRouteEditor,
         ),
         if (controller.routeEditorVisible) const _RouteEditor(),
@@ -293,10 +296,11 @@ class _NavigationMap extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
-    final hasPosition = snapshot != null;
-    final current = hasPosition
-        ? LatLng(snapshot!.latitudeDeg, snapshot!.longitudeDeg)
-        : null;
+    final latitude = snapshot?.latitudeDeg;
+    final longitude = snapshot?.longitudeDeg;
+    final hasPosition =
+        latitude?.isFinite == true && longitude?.isFinite == true;
+    final current = hasPosition ? LatLng(latitude!, longitude!) : null;
     final destination = controller.destination;
     final mapCenter = current ?? const LatLng(20.5937, 78.9629);
     final markers = <Marker>[
@@ -341,7 +345,17 @@ class _NavigationMap extends StatelessWidget {
               MarkerLayer(markers: markers),
             ],
           ),
-          if (!hasPosition) const _WaitingForPosition(),
+          if (!hasPosition)
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 14,
+              child: _WaitingForPosition(
+                status: snapshot?.predictionConfidenceReason ??
+                    controller.startupStatus,
+                error: controller.startupError,
+              ),
+            ),
           Positioned(
               left: 12,
               right: 12,
@@ -360,17 +374,41 @@ class _NavigationMap extends StatelessWidget {
 }
 
 class _WaitingForPosition extends StatelessWidget {
-  const _WaitingForPosition();
+  const _WaitingForPosition({required this.status, this.error});
+
+  final String status;
+  final String? error;
 
   @override
-  Widget build(BuildContext context) => ColoredBox(
-        color: _nearBlack.withValues(alpha: 0.72),
-        child: const Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 14),
-          Text('Waiting for live sensor and GNSS data'),
-        ])),
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xE617191D),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(children: [
+          const SizedBox(
+            height: 22,
+            width: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Acquiring location',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                Text(error ?? status,
+                    style: TextStyle(
+                      color: error == null ? Colors.white70 : _red,
+                      fontSize: 12,
+                    )),
+              ],
+            ),
+          ),
+        ]),
       );
 }
 
@@ -618,20 +656,26 @@ class _CoordinateLine extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Row(children: [
-          Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700))),
-          Text(
-              latitude == null || longitude == null
-                  ? 'Awaiting fix'
-                  : '${_coordinate(latitude!)}, ${_coordinate(longitude!)}',
-              style: TextStyle(color: color, fontSize: 16)),
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final latitude = this.latitude;
+    final longitude = this.longitude;
+    final hasCoordinate =
+        latitude?.isFinite == true && longitude?.isFinite == true;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(children: [
+        Expanded(
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700))),
+        Text(
+            hasCoordinate
+                ? '${_coordinate(latitude!)}, ${_coordinate(longitude!)}'
+                : 'Awaiting fix',
+            style: TextStyle(color: color, fontSize: 16)),
+      ]),
+    );
+  }
 }
 
 class _RawSensorData extends StatelessWidget {
@@ -639,57 +683,62 @@ class _RawSensorData extends StatelessWidget {
   final TelemetrySnapshot? snapshot;
 
   @override
-  Widget build(BuildContext context) => _PanelCard(
-        title: 'RAW SENSOR DATA',
-        child: Column(children: [
-          Row(children: [
-            Expanded(
-                child: _AxisTile(
-                    'Accelerometer', 'm/s²', snapshot?.accelerometer)),
-            const SizedBox(width: 9),
-            Expanded(
-                child: _AxisTile('Gyroscope', 'rad/s', snapshot?.gyroscope)),
-            const SizedBox(width: 9),
-            Expanded(
-                child: _AxisTile('Magnetometer', 'µT', snapshot?.magnetometer)),
-          ]),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: _panelLight, borderRadius: BorderRadius.circular(18)),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Motion gate',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 7),
-              Text(snapshot == null
-                  ? 'Awaiting IMU window'
-                  : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
-                      '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
-                      '${!snapshot!.mountCalibrated ? 'Mount calibration: awaiting fixed mount + GNSS course' : snapshot!.velocityModelTrusted ? 'Velocity CNN input: calibrated and in distribution' : 'Velocity CNN input: rejected — device/model mismatch'}\n'
-                      'Velocity CNN diagnostic: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
-            ]),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-                color: _panelLight, borderRadius: BorderRadius.circular(18)),
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Raw GPS/GNSS',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 7),
-              Text(snapshot?.actualLatitudeDeg == null
-                  ? 'Awaiting physical GNSS fix'
-                  : 'Latitude: ${_coordinate(snapshot!.actualLatitudeDeg!)}    Longitude: ${_coordinate(snapshot!.actualLongitudeDeg!)}'),
-            ]),
-          ),
+  Widget build(BuildContext context) {
+    final actualLatitude = snapshot?.actualLatitudeDeg;
+    final actualLongitude = snapshot?.actualLongitudeDeg;
+    final hasActualCoordinate =
+        actualLatitude?.isFinite == true && actualLongitude?.isFinite == true;
+    return _PanelCard(
+      title: 'RAW SENSOR DATA',
+      child: Column(children: [
+        Row(children: [
+          Expanded(
+              child:
+                  _AxisTile('Accelerometer', 'm/s²', snapshot?.accelerometer)),
+          const SizedBox(width: 9),
+          Expanded(child: _AxisTile('Gyroscope', 'rad/s', snapshot?.gyroscope)),
+          const SizedBox(width: 9),
+          Expanded(
+              child: _AxisTile('Magnetometer', 'µT', snapshot?.magnetometer)),
         ]),
-      );
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: _panelLight, borderRadius: BorderRadius.circular(18)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Motion gate',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 7),
+            Text(snapshot == null
+                ? 'Awaiting IMU window'
+                : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
+                    '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
+                    '${!snapshot!.mountCalibrated ? 'Mount calibration: awaiting fixed mount + GNSS course' : snapshot!.velocityModelTrusted ? 'Velocity CNN input: calibrated and in distribution' : 'Velocity CNN input: rejected — device/model mismatch'}\n'
+                    'Velocity CNN diagnostic: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: _panelLight, borderRadius: BorderRadius.circular(18)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Raw GPS/GNSS',
+                style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 7),
+            Text(hasActualCoordinate
+                ? 'Latitude: ${_coordinate(actualLatitude!)}    Longitude: ${_coordinate(actualLongitude!)}'
+                : 'Awaiting physical GNSS fix'),
+          ]),
+        ),
+      ]),
+    );
+  }
 }
 
 class _AxisTile extends StatelessWidget {

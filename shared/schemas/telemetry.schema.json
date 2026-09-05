@@ -5,13 +5,13 @@
   "required": ["timestamp_s", "mode", "position", "motion", "gnss", "metrics"],
   "properties": {
     "timestamp_s": {"type": "number"},
-    "mode": {"enum": ["gnss_aided_ins", "dead_reckoning", "reacquiring"]},
+    "mode": {"enum": ["acquiring_gnss", "gnss_aided_ins", "dead_reckoning", "reacquiring"]},
     "position": {
       "type": "object",
       "required": ["latitude_deg", "longitude_deg", "east_m", "north_m", "heading_deg"],
       "properties": {
-        "latitude_deg": {"type": "number"},
-        "longitude_deg": {"type": "number"},
+        "latitude_deg": {"type": ["number", "null"]},
+        "longitude_deg": {"type": ["number", "null"]},
         "east_m": {"type": ["number", "null"]},
         "north_m": {"type": ["number", "null"]},
         "heading_deg": {"type": "number"},
@@ -52,8 +52,8 @@
       "type": "object",
       "required": ["position_error_m", "drift_percent", "dr_distance_m", "seconds_since_gnss"],
       "properties": {
-        "position_error_m": {"type": "number"},
-        "drift_percent": {"type": "number"},
+        "position_error_m": {"type": ["number", "null"]},
+        "drift_percent": {"type": ["number", "null"]},
         "dr_distance_m": {"type": "number"},
         "seconds_since_gnss": {"type": "number"},
         "prediction_confidence": {"type": ["number", "null"]},

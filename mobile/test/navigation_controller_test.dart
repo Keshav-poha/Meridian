@@ -10,7 +10,10 @@ void main() {
   test('controller publishes engine telemetry and controls the GNSS simulator',
       () async {
     final engine = _FakeEngine();
-    final controller = NavigationController(engine);
+    final controller = NavigationController(
+      engine,
+      splashDuration: Duration.zero,
+    );
     await controller.start();
     engine.emit(_snapshot());
     await Future<void>.delayed(Duration.zero);
@@ -31,11 +34,30 @@ void main() {
     expect(controller.lastTripLogPath, 'test-log.jsonl');
     controller.dispose();
   });
+
+  test('leaves the splash even when an engine start never returns', () async {
+    final engine = _FakeEngine(startFuture: Completer<void>().future);
+    final controller = NavigationController(
+      engine,
+      splashDuration: Duration.zero,
+      engineStartTimeout: const Duration(milliseconds: 10),
+    );
+
+    await controller.start();
+    expect(controller.booting, isFalse);
+    expect(controller.engineReady, isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(controller.startupError, isNotNull);
+    controller.dispose();
+  });
 }
 
 class _FakeEngine implements IdrEngine {
+  _FakeEngine({this.startFuture});
+
   final StreamController<TelemetrySnapshot> _stream =
       StreamController<TelemetrySnapshot>.broadcast();
+  final Future<void>? startFuture;
   bool gnssEnabled = true;
   @override
   Stream<TelemetrySnapshot> get telemetry => _stream.stream;
@@ -54,7 +76,7 @@ class _FakeEngine implements IdrEngine {
   }
 
   @override
-  Future<void> start() async {}
+  Future<void> start() => startFuture ?? Future<void>.value();
   @override
   Future<void> stop() async => _stream.close();
   void emit(TelemetrySnapshot value) => _stream.add(value);

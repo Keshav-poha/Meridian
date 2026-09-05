@@ -152,6 +152,7 @@ class TripLogEncoder {
       };
 
   static String _modeName(NavigationMode mode) => switch (mode) {
+        NavigationMode.acquiring => 'acquiring_gnss',
         NavigationMode.gnssAidedIns => 'gnss_aided_ins',
         NavigationMode.deadReckoning => 'dead_reckoning',
         NavigationMode.reacquiring => 'reacquiring',

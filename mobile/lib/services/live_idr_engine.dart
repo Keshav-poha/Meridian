@@ -25,6 +25,8 @@ class LiveIdrEngine implements IdrEngine {
   static const _maximumAidingAccuracyM = 25.0;
   static const _maximumDrSpeedMps = 45.0;
   static const _maximumDrSpeedStepMps = 7.0;
+  static const _modelInitializationTimeout = Duration(seconds: 8);
+  static const _maximumBootstrapFixAge = Duration(minutes: 2);
 
   final StreamController<TelemetrySnapshot> _telemetry =
       StreamController<TelemetrySnapshot>.broadcast();
@@ -48,6 +50,9 @@ class LiveIdrEngine implements IdrEngine {
   _LocalPosition? _lastAccurate;
   _LocalPosition? _predicted;
   _LocalPosition? _reacquireFrom;
+  _LocalPosition? _bootstrapPosition;
+  DateTime? _bootstrapPositionTimestamp;
+  DateTime? _firstInitialQualityFixTimestamp;
   Axis3 _accelerometer = const Axis3(0, 0, 0);
   Axis3 _gyroscope = const Axis3(0, 0, 0);
   Axis3 _magnetometer = const Axis3(0, 0, 0);
@@ -61,12 +66,15 @@ class LiveIdrEngine implements IdrEngine {
   bool _gnssDegraded = false;
   double _predictionConfidence = 0;
   String _predictionConfidenceReason = 'Awaiting calibrated prediction';
+  String? _velocityModelStartupWarning;
   double? _lastAcceptedDrSpeedMps;
   double _drDistanceM = 0;
   bool _stationary = false;
   bool _vehicleMotionArmed = false;
   bool _started = false;
   bool _gnssEnabled = true;
+  int _lifecycleGeneration = 0;
+  String _locationStatus = 'Checking device location service';
 
   @override
   Stream<TelemetrySnapshot> get telemetry => _telemetry.stream;
@@ -75,80 +83,291 @@ class LiveIdrEngine implements IdrEngine {
   Future<void> start() async {
     if (_started) return;
     _started = true;
-    _velocityEstimator = await TfliteVelocityEstimator.create();
-    _velocityEstimator!.start();
-    _accelerometerSubscription = accelerometerEventStream().listen((event) {
-      _accelerometer = Axis3(event.x, event.y, event.z);
-    });
-    _gyroscopeSubscription = gyroscopeEventStream().listen((event) {
-      _gyroscope = Axis3(event.x, event.y, event.z);
-    });
-    _magnetometerSubscription = magnetometerEventStream().listen((event) {
-      _magnetometer = Axis3(event.x, event.y, event.z);
-    });
-    await _startPositionStream();
-    _lastTick = DateTime.now();
-    _ticker = Timer.periodic(const Duration(milliseconds: 100), (_) => _tick());
+    final lifecycleGeneration = ++_lifecycleGeneration;
+    try {
+      // Raw sensors and the 10 Hz ticker are the minimal live runtime.  Start
+      // them first; TFLite and location setup are allowed to finish later.
+      _accelerometerSubscription = accelerometerEventStream().listen(
+        (event) => _accelerometer = Axis3(event.x, event.y, event.z),
+        onError: (_, __) => _recordSensorWarning('Accelerometer unavailable'),
+      );
+      _gyroscopeSubscription = gyroscopeEventStream().listen(
+        (event) => _gyroscope = Axis3(event.x, event.y, event.z),
+        onError: (_, __) => _recordSensorWarning('Gyroscope unavailable'),
+      );
+      _magnetometerSubscription = magnetometerEventStream().listen(
+        (event) => _magnetometer = Axis3(event.x, event.y, event.z),
+        onError: (_, __) => _recordSensorWarning('Magnetometer unavailable'),
+      );
+      _lastTick = DateTime.now();
+      _ticker =
+          Timer.periodic(const Duration(milliseconds: 100), (_) => _tick());
+
+      // A permission dialog or a slow native interpreter must not hold the
+      // Flutter shell on its splash screen.  Both paths fail closed: no model
+      // speed is trusted until initialization genuinely completes.
+      unawaited(_initializeVelocityEstimator(lifecycleGeneration));
+      unawaited(_initializePositionStream(lifecycleGeneration));
+    } catch (_) {
+      _started = false;
+      await stop();
+      rethrow;
+    }
   }
 
-  Future<void> _startPositionStream() async {
+  bool _isActive(int lifecycleGeneration) =>
+      _started && _lifecycleGeneration == lifecycleGeneration;
+
+  Future<void> _initializeVelocityEstimator(int lifecycleGeneration) async {
+    final creation = TfliteVelocityEstimator.create();
+    try {
+      final estimator = await creation.timeout(_modelInitializationTimeout);
+      if (!_isActive(lifecycleGeneration)) {
+        await estimator.dispose();
+        return;
+      }
+      estimator.start();
+      _velocityEstimator = estimator;
+      _velocityModelStartupWarning = null;
+    } on TimeoutException {
+      if (_isActive(lifecycleGeneration)) {
+        _velocityModelStartupWarning = 'Velocity model startup timed out';
+      }
+      // Interpreter creation cannot be cancelled. Recover if the app is
+      // still on this lifecycle when it eventually finishes; otherwise
+      // dispose it so a closed/restarted screen cannot retain native state.
+      unawaited(creation.then<void>(
+        (estimator) async {
+          if (!_isActive(lifecycleGeneration) || _velocityEstimator != null) {
+            await estimator.dispose();
+            return;
+          }
+          estimator.start();
+          _velocityEstimator = estimator;
+          _velocityModelStartupWarning = null;
+        },
+        onError: (Object _, StackTrace __) {},
+      ));
+    } catch (_) {
+      if (_isActive(lifecycleGeneration)) {
+        _velocityModelStartupWarning = 'Velocity model unavailable';
+      }
+    }
+  }
+
+  Future<void> _initializePositionStream(int lifecycleGeneration) async {
+    try {
+      await _startPositionStream(lifecycleGeneration);
+    } catch (_) {
+      if (_isActive(lifecycleGeneration)) {
+        _setLocationStatus(
+            'Location provider setup failed — retry after checking Android location settings');
+      }
+    }
+  }
+
+  void _recordSensorWarning(String warning) {
+    _velocityModelStartupWarning ??= warning;
+  }
+
+  Future<void> _startPositionStream(int lifecycleGeneration) async {
+    if (!_isActive(lifecycleGeneration)) return;
     if (!await Geolocator.isLocationServiceEnabled()) {
+      if (_isActive(lifecycleGeneration)) {
+        _setLocationStatus(
+          'Location service is off — enable it in Android settings',
+        );
+      }
       return;
     }
+    if (!_isActive(lifecycleGeneration)) return;
     var permission = await Geolocator.checkPermission();
+    if (!_isActive(lifecycleGeneration)) return;
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
+    if (!_isActive(lifecycleGeneration)) return;
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
+      _setLocationStatus(
+        permission == LocationPermission.deniedForever
+            ? 'Location permission is blocked — enable it in Android app settings'
+            : 'Location permission denied — allow location to acquire GNSS',
+      );
       return;
     }
     final settings = AndroidSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
+      // Geolocator's accuracy setting is not satellite provenance. `high`
+      // asks Android for a high-accuracy observation while still allowing the
+      // display-only bootstrap path to recover from a cold GPS start.
+      accuracy: LocationAccuracy.high,
       distanceFilter: 0,
       intervalDuration: Duration(seconds: 1),
     );
-    _positionSubscription =
-        Geolocator.getPositionStream(locationSettings: settings)
-            .listen((position) {
-      final now = DateTime.now();
-      _actualPosition = position;
-      // Keep physical fixes only as Developer Mode ground truth during a
-      // simulated outage; they must not recalibrate the inertial model.
-      if (!_gnssEnabled) return;
-      if (!_isUsableGnssFix(position, now) ||
-          !_isPlausibleAidingFix(position)) {
-        _gnssDegraded = true;
-        return;
+    final subscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+      (position) {
+        if (_isActive(lifecycleGeneration)) _onPosition(position);
+      },
+      onError: (_, __) {
+        if (_isActive(lifecycleGeneration)) {
+          _setLocationStatus(
+            'Location provider error — waiting for a new Android location fix',
+          );
+        }
+      },
+    );
+    if (!_isActive(lifecycleGeneration)) {
+      await subscription.cancel();
+      return;
+    }
+    _positionSubscription = subscription;
+    _setLocationStatus('Location stream active — waiting for a current fix');
+    // Stream delivery can legitimately take a while on a cold GPS start.
+    // Use a recent physical cache and an independent one-shot request to make
+    // the map useful immediately, but keep both display-only until they pass
+    // the stricter fusion validation below.
+    unawaited(_seedBootstrapPosition(
+      AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+        intervalDuration: const Duration(seconds: 1),
+        timeLimit: const Duration(seconds: 12),
+      ),
+      lifecycleGeneration,
+    ));
+  }
+
+  Future<void> _seedBootstrapPosition(
+    LocationSettings settings,
+    int lifecycleGeneration,
+  ) async {
+    try {
+      final cached = await Geolocator.getLastKnownPosition();
+      if (_isActive(lifecycleGeneration) && cached != null) {
+        _actualPosition = cached;
+        _recordBootstrapPosition(cached, DateTime.now());
       }
-      // Do not reacquire from a callback carrying a cached pre-loss fix.  The
-      // raw position remains visible in Developer Mode, but aiding waits for a
-      // fix timestamped after the loss/enable transition.
-      if (!_gnssRecoveryGate.accept(position.timestamp)) {
-        _gnssDegraded = true;
-        return;
+      final current = await Geolocator.getCurrentPosition(
+        locationSettings: settings,
+      );
+      // A one-shot provider response is useful for the map, but it may be a
+      // current-looking fused/cache result. It is deliberately display-only;
+      // only the continuously observed stream may establish a DR origin.
+      if (_isActive(lifecycleGeneration)) {
+        _actualPosition = current;
+        _recordBootstrapPosition(current, DateTime.now());
       }
-      _gnssDegraded = position.accuracy > 10.0;
-      _lastGoodGnss = position;
-      _lastAcceptedGnssTimestamp = position.timestamp;
-      final courseReliable = _hasUsableCourse(position);
-      if (courseReliable) {
-        _velocityEstimator?.setGnssReference(
-          speedMps: position.speed,
-          headingDeg: position.heading,
-          accuracyM: position.accuracy,
-          timestamp: position.timestamp,
-          headingReliable: true,
-        );
-        _headingDegrees = position.heading;
-      }
-      if (_hasUsableSpeed(position)) {
-        _lastAcceptedDrSpeedMps = position.speed;
-      }
-      final fix = _LocalPosition(position.latitude, position.longitude);
-      _lastAccurate = fix;
-      _predicted ??= fix;
-    });
+    } catch (_) {
+      // A stream callback remains the primary source; a failed one-shot
+      // request must not stop it or turn a coarse location into fusion input.
+    }
+  }
+
+  void _onPosition(Position position) {
+    if (!_started) return;
+    final now = DateTime.now();
+    _actualPosition = position;
+    _recordBootstrapPosition(position, now);
+    // Keep physical fixes only as Developer Mode ground truth during a
+    // simulated outage; they must not recalibrate the inertial model.
+    if (!_gnssEnabled) {
+      _tick();
+      return;
+    }
+    if (!_isUsableGnssFix(position, now) || !_isPlausibleAidingFix(position)) {
+      _firstInitialQualityFixTimestamp = null;
+      _setLocationStatus(_rejectedLocationStatus(position, now));
+      _tick();
+      return;
+    }
+    // Do not reacquire from a callback carrying a cached pre-loss fix.  The
+    // raw position remains visible in Developer Mode, but aiding waits for a
+    // fix timestamped after the loss/enable transition.
+    if (!_gnssRecoveryGate.accept(position.timestamp)) {
+      _setLocationStatus(
+        'Waiting for a location fix collected after GNSS recovery',
+      );
+      _tick();
+      return;
+    }
+    if (!_hasInitialQualityFixPair(position)) {
+      _setLocationStatus(
+        'First fusion-quality location received — waiting for a second fresh fix',
+      );
+      _tick();
+      return;
+    }
+    _gnssDegraded = position.accuracy > 10.0;
+    _locationStatus = _gnssDegraded
+        ? 'Location accepted with degraded accuracy (${position.accuracy.toStringAsFixed(1)} m)'
+        : 'Fusion-quality location accepted';
+    _lastGoodGnss = position;
+    _lastAcceptedGnssTimestamp = position.timestamp;
+    final courseReliable = _hasUsableCourse(position);
+    if (courseReliable) {
+      _velocityEstimator?.setGnssReference(
+        speedMps: position.speed,
+        headingDeg: position.heading,
+        accuracyM: position.accuracy,
+        timestamp: position.timestamp,
+        headingReliable: true,
+      );
+      _headingDegrees = position.heading;
+    }
+    if (_hasUsableSpeed(position)) {
+      _lastAcceptedDrSpeedMps = position.speed;
+    }
+    final fix = _LocalPosition(position.latitude, position.longitude);
+    _lastAccurate = fix;
+    _predicted ??= fix;
+    _tick();
+  }
+
+  void _recordBootstrapPosition(Position position, DateTime now) {
+    if (!_isDisplayableGnssPosition(position, now)) return;
+    _bootstrapPosition = _LocalPosition(position.latitude, position.longitude);
+    _bootstrapPositionTimestamp = position.timestamp;
+    final accuracy = position.hasAccuracy && position.accuracy.isFinite
+        ? '${position.accuracy.toStringAsFixed(0)} m'
+        : 'unknown accuracy';
+    _setLocationStatus(
+      'High-accuracy location visible ($accuracy) — waiting for a fusion-quality fix',
+    );
+  }
+
+  void _setLocationStatus(String status) {
+    _locationStatus = status;
+    _gnssDegraded = true;
+  }
+
+  String _rejectedLocationStatus(Position position, DateTime now) {
+    if (!_isDisplayableGnssPosition(position, now)) {
+      return 'Location fix is stale or invalid — waiting for a current fix';
+    }
+    if (!position.hasAccuracy ||
+        !position.accuracy.isFinite ||
+        position.accuracy <= 0) {
+      return 'Location fix has no usable accuracy — waiting for a quality fix';
+    }
+    if (position.accuracy > _maximumAidingAccuracyM) {
+      return 'Location accuracy is ${position.accuracy.toStringAsFixed(0)} m — waiting for ${_maximumAidingAccuracyM.toStringAsFixed(0)} m or better';
+    }
+    return 'Location jump rejected — waiting for a consistent quality fix';
+  }
+
+  bool _hasInitialQualityFixPair(Position position) {
+    // Reacquisition already has a trusted DR origin and retains its one-fix
+    // recovery latency. Startup needs two strictly newer stream observations
+    // so a lone current-looking provider result cannot initialize navigation.
+    if (_lastAccurate != null || _predicted != null) return true;
+    final first = _firstInitialQualityFixTimestamp;
+    if (first == null || !position.timestamp.isAfter(first)) {
+      _firstInitialQualityFixTimestamp = position.timestamp;
+      return false;
+    }
+    _firstInitialQualityFixTimestamp = null;
+    return true;
   }
 
   @override
@@ -160,6 +379,7 @@ class LiveIdrEngine implements IdrEngine {
       'note': 'Manual outage simulator; physical GNSS remains reference-only.',
     });
     if (!enabled) {
+      _firstInitialQualityFixTimestamp = null;
       _gnssRecoveryGate.requireFixAfter(DateTime.now());
       _lossStarted = DateTime.now();
       _reacquireStarted = null;
@@ -246,7 +466,8 @@ class LiveIdrEngine implements IdrEngine {
     if (_headingDegrees < 0) _headingDegrees += 360;
     // GNSS-aided display is corrected directly by incoming fixes; only
     // advance the inertial position during an outage or reacquisition.
-    if (mode != NavigationMode.gnssAidedIns) {
+    if (mode == NavigationMode.deadReckoning ||
+        mode == NavigationMode.reacquiring) {
       _advancePrediction(
         dt,
         countDrDistance: mode == NavigationMode.deadReckoning,
@@ -254,12 +475,13 @@ class LiveIdrEngine implements IdrEngine {
     }
     _setPredictionConfidence(inferred, freshFix, mode, now);
     final display = _displayPosition(mode, now);
-    if (display == null) return;
     final actual = _actualPosition == null
         ? null
         : _LocalPosition(_actualPosition!.latitude, _actualPosition!.longitude);
     final error =
-        actual == null ? double.nan : _distanceMeters(display, actual);
+        mode == NavigationMode.acquiring || display == null || actual == null
+            ? double.nan
+            : _distanceMeters(display, actual);
     final snapshot = TelemetrySnapshot(
       timestamp: now,
       mode: mode,
@@ -270,8 +492,11 @@ class LiveIdrEngine implements IdrEngine {
       stationary: _stationary,
       vehicleMotionArmed: _vehicleMotionArmed,
       headingDeg: _headingDegrees,
-      latitudeDeg: display.latitude,
-      longitudeDeg: display.longitude,
+      // A sensor-only startup snapshot deliberately carries no invented map
+      // coordinate. The UI renders the map's honest acquisition state while
+      // Developer Mode can still expose real IMU and location diagnostics.
+      latitudeDeg: display?.latitude ?? double.nan,
+      longitudeDeg: display?.longitude ?? double.nan,
       accuracyM: _actualPosition?.accuracy ?? double.nan,
       positionErrorM: error,
       driftPercent: _drDistanceM <= 0 || !error.isFinite
@@ -300,6 +525,14 @@ class LiveIdrEngine implements IdrEngine {
   }
 
   NavigationMode _navigationMode(bool freshFix, DateTime now) {
+    // A real, coarse bootstrap position is intentionally not a DR origin.
+    // It gives the user a map pin while the quality gate waits for an
+    // aid-quality GNSS observation.
+    if (_gnssEnabled && _lastAccurate == null && _predicted == null) {
+      _lossStarted = null;
+      _reacquireStarted = null;
+      return NavigationMode.acquiring;
+    }
     if (!_gnssEnabled || !freshFix) {
       // Capture this boundary once. Replacing it every 100 ms would reject a
       // legitimate provider fix whose timestamp trails its delivery time.
@@ -325,6 +558,14 @@ class LiveIdrEngine implements IdrEngine {
   }
 
   _LocalPosition? _displayPosition(NavigationMode mode, DateTime now) {
+    if (mode == NavigationMode.acquiring) {
+      final timestamp = _bootstrapPositionTimestamp;
+      if (timestamp == null ||
+          timestamp.isBefore(now.subtract(_maximumBootstrapFixAge))) {
+        return null;
+      }
+      return _bootstrapPosition;
+    }
     if (mode == NavigationMode.gnssAidedIns) {
       if (_lastAccurate != null) _predicted = _lastAccurate;
       return _lastAccurate;
@@ -365,16 +606,20 @@ class LiveIdrEngine implements IdrEngine {
   }
 
   bool _isUsableGnssFix(Position position, DateTime now) =>
-      !position.isMocked &&
+      _isDisplayableGnssPosition(position, now) &&
       position.hasAccuracy &&
       position.accuracy.isFinite &&
       position.accuracy > 0 &&
-      position.accuracy <= _maximumAidingAccuracyM &&
+      position.accuracy <= _maximumAidingAccuracyM;
+
+  bool _isDisplayableGnssPosition(Position position, DateTime now) =>
+      !position.isMocked &&
       position.latitude.isFinite &&
       position.longitude.isFinite &&
       position.latitude.abs() <= 90 &&
       position.longitude.abs() <= 180 &&
-      !position.timestamp.isAfter(now.add(const Duration(seconds: 3)));
+      !position.timestamp.isAfter(now.add(const Duration(seconds: 3))) &&
+      !position.timestamp.isBefore(now.subtract(_maximumBootstrapFixAge));
 
   bool _isPlausibleAidingFix(Position candidate) {
     final previous = _lastGoodGnss;
@@ -439,6 +684,11 @@ class LiveIdrEngine implements IdrEngine {
     NavigationMode mode,
     DateTime now,
   ) {
+    if (mode == NavigationMode.acquiring) {
+      _predictionConfidence = 0;
+      _predictionConfidenceReason = _locationStatus;
+      return;
+    }
     if (mode == NavigationMode.gnssAidedIns &&
         freshFix &&
         _lastGoodGnss != null) {
@@ -447,13 +697,14 @@ class LiveIdrEngine implements IdrEngine {
               .clamp(0.2, 1.0)
               .toDouble();
       _predictionConfidenceReason = _gnssDegraded
-          ? 'GNSS aided with degraded accuracy (${_lastGoodGnss!.accuracy.toStringAsFixed(1)} m)'
-          : 'GNSS aided (${_lastGoodGnss!.accuracy.toStringAsFixed(1)} m accuracy)';
+          ? 'Quality location aided with degraded accuracy (${_lastGoodGnss!.accuracy.toStringAsFixed(1)} m)'
+          : 'Quality location aided (${_lastGoodGnss!.accuracy.toStringAsFixed(1)} m accuracy)';
       return;
     }
     if (inferred == null) {
       _predictionConfidence = 0;
-      _predictionConfidenceReason = 'Awaiting 2 s calibrated IMU window';
+      _predictionConfidenceReason =
+          _velocityModelStartupWarning ?? 'Awaiting 2 s calibrated IMU window';
       return;
     }
     final reasons = <String>[];
@@ -502,6 +753,9 @@ class LiveIdrEngine implements IdrEngine {
 
   @override
   Future<void> stop() async {
+    // Set this before awaiting cancellation so an in-flight asynchronous
+    // interpreter creation disposes itself instead of attaching after stop.
+    _started = false;
     _ticker?.cancel();
     await _positionSubscription?.cancel();
     await _accelerometerSubscription?.cancel();
@@ -509,7 +763,6 @@ class LiveIdrEngine implements IdrEngine {
     await _magnetometerSubscription?.cancel();
     await _velocityEstimator?.dispose();
     await _tripRecorder.stop();
-    _started = false;
   }
 }
 
