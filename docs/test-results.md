@@ -54,10 +54,11 @@ The small accuracy change is expected: the matcher rejects ambiguous or distant 
 | Flutter analysis | `flutter analyze` | No issues | Passes static analysis |
 | Flutter tests | `flutter test` | 19 passed | Passes unit/widget coverage |
 | Android debug package | `flutter build apk --debug` | Built successfully; 213,712,201 bytes | Debug package only |
+| Android release package | `flutter build apk --release`, package inspection, and connected-device launch | Built successfully; no Android `DEBUGGABLE` flag; high-rate sensor permission granted | Sideload verified; production signing key still required for public distribution |
 | Mobile update rate | 100 ms runtime ticker | Configured for 10 Hz | **Physical measurement pending** |
 | Edge velocity runtime | ONNX Runtime profile while fed a 200 Hz stream | 2,763 inferences/s | Exceeds feed rate for velocity reference; full edge navigation engine pending |
 
-The mobile GNSS recovery change is covered by analysis, tests, and debug APK compilation. It still needs a final connected-phone check for stable high-accuracy aiding and the transition through a real GNSS outage.
+The mobile GNSS recovery change is covered by analysis, tests, Android packages, and a release-package launch on a connected phone. A fixed-mount drive is still required to validate stable high-accuracy aiding and the transition through a real GNSS outage.
 
 ## Required plot and metrics artifacts
 

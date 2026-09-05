@@ -10,6 +10,10 @@ MERIDIAN addresses Smart India Hackathon problem statement **26168**: “AI-ML b
 
 MERIDIAN is a reproducible IMU/GNSS replay and deployment pipeline. It synchronizes phone and vehicle records, learns a bounded velocity prior from gravity-compensated vehicle-frame IMU windows, anchors the live speed state to GNSS, and exposes the same model contract to a Flutter app and an ONNX Runtime edge reference. The mobile app includes a navigation view, GNSS outage simulator, Developer Mode telemetry, confidence reporting, and a real-drive recorder.
 
+## SIH submission documents
+
+The evaluator-facing report, requirement coverage, architecture, feature summary, benchmark evidence, deployment guide, and submission checklist are collected in [`docs/submission/`](docs/submission/README.md). The packet links each claim to the corresponding implementation or tracked evidence and identifies work that remains field-validation or integration work.
+
 ## Core features
 
 | Problem-statement feature | Implementation and current boundary |

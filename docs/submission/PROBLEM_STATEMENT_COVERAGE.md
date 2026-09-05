@@ -1,0 +1,27 @@
+# MERIDIAN Problem Statement Coverage
+
+This document maps the SIH 26168 expected solution to the current MERIDIAN implementation. Status labels distinguish demonstrated offline functionality from mobile integration and field validation that remain to be completed.
+
+| Expected capability | MERIDIAN response | Current status | Evidence |
+| --- | --- | --- | --- |
+| Phone mount alignment and calibration | Static gravity leveling estimates pitch and roll. Dynamic turn kinematics with reliable GNSS course estimates yaw. | Complete offline; field validation pending | [Calibration implementation](../../ml/src/idr_ml/calibration.py), [mobile preprocessing](../../mobile/lib/services/imu_preprocessor.dart) |
+| Gravity removal and orientation-independent features | Raw acceleration is gravity-compensated and rotated into forward, right, and down vehicle axes before inference. | Implemented | [Feature contract](../../shared/config/feature_spec.json), [technical approach](../technical-approach.md) |
+| Speed estimation without OBD-II | A 961-parameter TinyVelocityCNN consumes 2-second, 9-channel IMU windows and estimates a bounded forward-speed prior. | Complete offline; field validation pending | [Velocity model](../../ml/src/idr_ml/velocity_model.py) |
+| Vibration, bump, and unsuitable-motion handling | Stationary, shock, stale-input, mount-integrity, out-of-distribution, and GNSS-confirmed-motion gates reject unsuitable windows. | Implemented safeguards; labelled multi-device negative-data training pending | [Motion gate](../../mobile/lib/services/motion_gate.dart), [field-data preparation](../../ml/scripts/prepare_motion_negatives.py) |
+| Inertial dead reckoning with vehicle constraints | A forward-only non-holonomic constraint sets lateral and vertical vehicle velocity to zero and propagates heading and distance from a GNSS-aided state. | Complete offline | [Dead reckoning implementation](../../ml/src/idr_ml/dead_reckoning.py) |
+| GNSS plus INS fusion | The runtime uses a quality-aware GNSS-aided state, forward acceleration, calibrated yaw, and a bounded learned speed-rate residual. | Implemented as GNSS-anchored inertial fusion; live EKF or UKF update pending | [Fusion implementation](../../ml/src/idr_ml/fusion.py), [mobile runtime](../../mobile/lib/services/live_idr_engine.dart) |
+| GNSS loss and recovery | The mobile runtime provides acquiring, GNSS-aided, dead-reckoning, and 500 ms reacquisition-blend states. A fresh post-loss fix is required before recovery. | Implemented; moving-drive latency measurement pending | [Mode switch](../../ml/src/idr_ml/mode_switch.py), [mobile runtime](../../mobile/lib/services/live_idr_engine.dart) |
+| Map matching with road constraints | Offline HMM/Viterbi matching uses distance, ambiguity, and heading gates. Unsafe matches preserve the raw DR coordinate. | Validated offline; not yet in mobile or edge runtime | [Map matcher](../../ml/src/idr_ml/map_matching.py), [safety policy](../safety/map-matching.md) |
+| Real-time mobile navigation interface | The Android app presents location, GNSS quality, heading, speed, route controls, GNSS-loss state, telemetry, confidence, and trip logging. | Core UI complete; road validation pending | [Mobile UI](../../mobile/lib/ui/meridian_shell.dart), [interface renders](../screenshots/README.md) |
+| Mobile performance target | The runtime tick is set to 100 ms and Android high-rate sensor permission is declared. | Configured for 10 Hz; physical rate measurement pending | [Mobile runtime](../../mobile/lib/services/live_idr_engine.dart), [Android manifest](../../mobile/android/app/src/main/AndroidManifest.xml) |
+| Edge-deployable external-IMU path | The Python reference validates external IMU frames, resamples 100 Hz or 200 Hz inputs into the shared 10 Hz model window, and runs ONNX Runtime. | Verified velocity reference; complete high-rate navigation stack pending | [Edge reference](../../edge/README.md) |
+| Below 10% drift during a GNSS deficit | The current ONNX model produced 94.88 m endpoint error over 1,867.62 m in the held-out Driver A S3c replay. | Passes one offline split at 5.08%; physical test pending | [Stage 12 evidence](../benchmarks/iovnbd-driver-a-s3c-stage12/README.md) |
+| Required position and performance plots | The evaluator writes position, speed-tracking, drift-versus-distance, metrics, and trajectory artifacts for the current model. | Complete offline | [Benchmark index](../benchmarks/README.md) |
+
+## Interpretation of the benchmark
+
+The benchmark validates a 59.9-second simulated GNSS outage at 10 Hz using a held-out recording. It uses only pre-outage calibration and excludes reference position, speed, heading, and yaw-rate labels from the blackout propagation. It is evidence for the offline replay target, not evidence of lane-level performance on every phone, route, or tunnel.
+
+## Requirement evidence in one place
+
+The detailed repository matrix is maintained in [the technical compliance matrix](../compliance-matrix.md). The current benchmark artifacts, raw metrics, and reproduction command are in [the benchmark directory](../benchmarks/README.md).

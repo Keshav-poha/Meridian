@@ -18,7 +18,7 @@ MERIDIAN does not vendor the IO-VNBD dataset or OpenStreetMap extracts. Users wh
 
 - Source: [OpenStreetMap](https://www.openstreetmap.org/copyright)
 - Use in this repository: offline road geometry for map matching and raster tiles from `tile.openstreetmap.org` in the Flutter map.
-- Attribution: public/demo builds must visibly credit `© OpenStreetMap contributors` and comply with the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/). The current mobile UI still needs that visible in-map attribution before public demonstration.
+- Attribution: public/demo builds must visibly credit `© OpenStreetMap contributors` and comply with the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/). The mobile navigation view displays the required in-map attribution.
 
 ## Software dependencies
 
