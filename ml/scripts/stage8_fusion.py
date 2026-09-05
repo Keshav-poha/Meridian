@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 
 from idr_ml.calibration import CalibrationResult
-from idr_ml.dead_reckoning import measure_drift, select_blackout
+from idr_ml.dead_reckoning import (
+    initial_state_from_preoutage_reference,
+    measure_drift,
+    select_blackout,
+)
 from idr_ml.fusion import adaptive_fused_replay, estimate_adaptive_residual
 from idr_ml.iovnbd import load_synchronized_pair
 from idr_ml.velocity_model import load_velocity_artifact
@@ -27,12 +31,22 @@ def main() -> None:
     args = parser.parse_args()
     frame = load_synchronized_pair(args.smartphone, args.vehicle, nrows=args.max_rows)
     calibration_data = json.loads(args.calibration.read_text(encoding="utf-8")); calibration_data.pop("stage", None)
+    calibration_data.pop("input_provenance", None)
     calibration = CalibrationResult(**calibration_data)
     history = select_blackout(frame, start_seconds=args.start_seconds - args.history_seconds, duration_seconds=args.history_seconds)
     blackout = select_blackout(frame, start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
     model, normalization = load_velocity_artifact(args.artifact_dir)
     residual = estimate_adaptive_residual(history, calibration, model, normalization)
-    result = adaptive_fused_replay(blackout, calibration, model, normalization, residual)
+    loss_reference = frame.loc[frame.timestamp_s <= float(blackout.timestamp_s.iloc[0]) + 1e-6].tail(1)
+    blackout_inputs = blackout.drop(columns=[column for column in blackout if column.startswith("gt_")])
+    result = adaptive_fused_replay(
+        blackout_inputs,
+        calibration,
+        model,
+        normalization,
+        residual,
+        initial_state=initial_state_from_preoutage_reference(loss_reference, calibration),
+    )
     metrics = measure_drift(blackout, result)
     if metrics.drift_percent >= 10.0:
         raise SystemExit(f"fusion drift target not met: {metrics.drift_percent:.2f}% >= 10%")

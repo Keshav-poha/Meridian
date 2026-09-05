@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from .velocity_model import _torch
+from .velocity_model import _torch, file_sha256
 
 
 @dataclass(frozen=True)
@@ -55,10 +55,26 @@ def write_portable_metadata(
     normalization: dict[str, np.ndarray],
     feature_spec_path: str | Path,
     output_dir: str | Path,
+    *,
+    training_provenance: dict[str, Any],
 ) -> Path:
     """Write one language-neutral normalizer and manifests beside model files."""
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
+    calibration = training_provenance.get("calibration")
+    if (
+        not isinstance(training_provenance.get("clock_alignment"), dict)
+        or not isinstance(calibration, dict)
+        or training_provenance.get("calibration_alignment_verified") is not True
+        or not isinstance(calibration.get("calibration_time_end_exclusive_s"), (int, float))
+    ):
+        raise ValueError(
+            "training provenance must include a verified clock alignment and time-bounded calibration"
+        )
+    try:
+        json.dumps(training_provenance)
+    except (TypeError, ValueError) as error:
+        raise ValueError("training provenance must be JSON serializable") from error
     spec = json.loads(Path(feature_spec_path).read_text(encoding="utf-8"))
     portable = _portable_normalization(normalization)
     (destination / "velocity_cnn.normalization.json").write_text(
@@ -77,6 +93,7 @@ def write_portable_metadata(
             "method": spec["normalization"]["method"],
         },
         "training_parameter_count": 961,
+        "training_provenance": training_provenance,
     }
     manifests = {
         "onnx": {
@@ -100,6 +117,25 @@ def write_portable_metadata(
         (destination / f"velocity_cnn.{format_name}.manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return destination / "velocity_cnn.normalization.json"
+
+
+def bind_portable_manifest(
+    manifest_path: str | Path,
+    *,
+    model_path: str | Path,
+    normalization_path: str | Path,
+    feature_spec_path: str | Path,
+) -> Path:
+    """Bind a portable manifest to exact model/preprocessing file contents."""
+    destination = Path(manifest_path)
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    payload["artifact_sha256"] = {
+        "model": file_sha256(model_path),
+        "normalization": file_sha256(normalization_path),
+        "feature_spec": file_sha256(feature_spec_path),
+    }
+    destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return destination
 
 
 def export_onnx(model: Any, output_path: str | Path) -> Path:

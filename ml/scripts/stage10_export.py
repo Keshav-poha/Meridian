@@ -11,9 +11,9 @@ from time import perf_counter
 import numpy as np
 
 from idr_ml.model_export import (
-    export_onnx, export_tflite, validate_onnx, validate_tflite, write_portable_metadata,
+    bind_portable_manifest, export_onnx, export_tflite, validate_onnx, validate_tflite, write_portable_metadata,
 )
-from idr_ml.velocity_model import load_velocity_artifact
+from idr_ml.velocity_model import file_provenance, load_velocity_artifact
 
 
 def benchmark_edge_runtime(model_path: Path, normalization_path: Path) -> dict[str, float | int]:
@@ -42,20 +42,68 @@ def benchmark_edge_runtime(model_path: Path, normalization_path: Path) -> dict[s
     }
 
 
+def _load_training_provenance(metrics_path: Path, artifact_dir: Path) -> dict[str, object]:
+    """Require Stage 10 to export the exact checkpoint documented by Stage 5."""
+    if not metrics_path.is_file():
+        raise FileNotFoundError(
+            f"Stage 5 metrics are required for export: {metrics_path}. Run Stage 5 training first."
+        )
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read Stage 5 metrics {metrics_path}: {error}") from error
+    if not isinstance(metrics, dict) or metrics.get("stage") != 5:
+        raise ValueError("training metrics must be a Stage 5 report")
+    input_provenance = metrics.get("input_provenance")
+    expected_artifacts = metrics.get("trained_artifacts")
+    if not isinstance(input_provenance, dict) or not isinstance(expected_artifacts, dict):
+        raise ValueError(
+            "Stage 5 report lacks input or trained-artifact provenance; retrain before exporting"
+        )
+    verified_artifacts: dict[str, object] = {}
+    for key, filename in (("model", "velocity_cnn.pt"), ("normalization", "normalization.npz")):
+        expected = expected_artifacts.get(key)
+        actual = file_provenance(artifact_dir / filename)
+        if not isinstance(expected, dict) or expected.get("sha256") != actual["sha256"]:
+            raise ValueError(
+                f"Stage 5 {key} hash does not match {artifact_dir / filename}; refuse stale export"
+            )
+        verified_artifacts[key] = actual
+    return {
+        **input_provenance,
+        "stage5_metrics": file_provenance(metrics_path),
+        "trained_artifacts": verified_artifacts,
+    }
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+
     parser.add_argument("--artifact-dir", type=Path, default=Path("ml/artifacts/velocity_cnn"))
     parser.add_argument("--feature-spec", type=Path, default=Path("shared/config/feature_spec.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("shared/models"))
     parser.add_argument("--mobile-assets", type=Path, default=Path("mobile/assets/models"))
     parser.add_argument("--report", type=Path, default=Path("ml/reports/stage10/metrics.json"))
+    parser.add_argument("--training-metrics", type=Path, default=Path("ml/reports/stage5/metrics.json"))
     args = parser.parse_args()
 
+    training_provenance = _load_training_provenance(args.training_metrics, args.artifact_dir)
     model, normalization = load_velocity_artifact(args.artifact_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    write_portable_metadata(normalization, args.feature_spec, args.output_dir)
+    write_portable_metadata(normalization, args.feature_spec, args.output_dir, training_provenance=training_provenance)
     onnx_path = export_onnx(model, args.output_dir / "velocity_cnn.onnx")
     tflite_path = export_tflite(model, args.output_dir / "velocity_cnn.tflite")
+    normalization_path = args.output_dir / "velocity_cnn.normalization.json"
+    bind_portable_manifest(
+        args.output_dir / "velocity_cnn.onnx.manifest.json",
+        model_path=onnx_path,
+        normalization_path=normalization_path,
+        feature_spec_path=args.feature_spec,
+    )
+    bind_portable_manifest(
+        args.output_dir / "velocity_cnn.tflite.manifest.json",
+        model_path=tflite_path,
+        normalization_path=normalization_path,
+        feature_spec_path=args.feature_spec,
+    )
     validations = [validate_onnx(model, onnx_path), validate_tflite(model, tflite_path)]
 
     args.mobile_assets.mkdir(parents=True, exist_ok=True)
@@ -67,6 +115,7 @@ def main() -> None:
     metrics = {
         "stage": 10,
         "model": "tiny_velocity_cnn",
+        "training_provenance": training_provenance,
         "onnx_bytes": onnx_path.stat().st_size,
         "tflite_bytes": tflite_path.stat().st_size,
         "exports": [validation.as_dict() for validation in validations],

@@ -46,6 +46,62 @@ class DeadReckoningResult:
 
 
 @dataclass(frozen=True)
+class NavigationInitialState:
+    """State available at the instant GNSS aiding is masked or lost."""
+
+    speed_mps: float
+    heading_rad: float
+    gyro_z_bias_rps: float
+
+
+def initial_state_from_preoutage_reference(
+    history: pd.DataFrame,
+    calibration: CalibrationResult,
+) -> NavigationInitialState:
+    """Freeze initial state and gyro bias from GNSS-aided *pre-loss* history.
+
+    IO-VNBD names the vehicle reference fields ``gt_*``. They are a proxy for
+    GNSS speed/course while aiding is available in this offline replay, but no
+    such field is allowed into the blackout integrator itself.
+    """
+    required = {"gt_speed_mps", "gt_heading_rad", "gyro_x_rps", "gyro_y_rps", "gyro_z_rps"}
+    missing = required.difference(history.columns)
+    if missing:
+        raise ValueError(f"pre-outage reference missing: {sorted(missing)}")
+    valid_state = np.isfinite(history.gt_speed_mps.to_numpy(float)) & np.isfinite(
+        history.gt_heading_rad.to_numpy(float)
+    )
+    if not valid_state.any():
+        raise ValueError("pre-outage reference has no finite speed/heading state")
+    final_index = int(np.flatnonzero(valid_state)[-1])
+    gyro = apply_mount_rotation(
+        history[["gyro_x_rps", "gyro_y_rps", "gyro_z_rps"]].to_numpy(float), calibration
+    )[:, 2]
+    idle = valid_state & (history.gt_speed_mps.to_numpy(float) <= 0.5) & np.isfinite(gyro)
+    gyro_bias = float(np.median(gyro[idle])) if int(idle.sum()) >= 5 else 0.0
+    return NavigationInitialState(
+        speed_mps=max(0.0, float(history.gt_speed_mps.iloc[final_index])),
+        heading_rad=float(history.gt_heading_rad.iloc[final_index]),
+        gyro_z_bias_rps=gyro_bias,
+    )
+
+
+def _legacy_initial_state(frame: pd.DataFrame) -> NavigationInitialState:
+    """Compatibility fallback for legacy offline callers with first GNSS state."""
+    required = {"gt_speed_mps", "gt_heading_rad"}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(
+            "dead reckoning needs explicit NavigationInitialState when blackout input has no gt_* fields"
+        )
+    return NavigationInitialState(
+        speed_mps=max(0.0, float(frame.gt_speed_mps.iloc[0])),
+        heading_rad=float(frame.gt_heading_rad.iloc[0]),
+        gyro_z_bias_rps=0.0,
+    )
+
+
+@dataclass(frozen=True)
 class DriftMetrics:
     distance_travelled_m: float
     end_position_error_m: float
@@ -61,6 +117,7 @@ def classical_nhc_dead_reckoning(
     frame: pd.DataFrame,
     calibration: CalibrationResult,
     *,
+    initial_state: NavigationInitialState | None = None,
     shock_clip_mps2: float = 8.0,
     smoothing_seconds: float = 0.3,
     idle_speed_mps: float = 0.5,
@@ -74,7 +131,7 @@ def classical_nhc_dead_reckoning(
     required = {
         "timestamp_s", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
         "gravity_x_mps2", "gravity_y_mps2", "gravity_z_mps2",
-        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "gt_speed_mps", "gt_heading_rad",
+        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps",
     }
     missing = required.difference(frame.columns)
     if missing:
@@ -99,8 +156,8 @@ def classical_nhc_dead_reckoning(
     smoothing_samples = max(1, round(smoothing_seconds / nominal_dt))
     forward_accel = np.clip(_moving_average(vehicle_accel[:, 0], smoothing_samples), -shock_clip_mps2, shock_clip_mps2)
 
-    idle = frame.gt_speed_mps.to_numpy(dtype=float) <= idle_speed_mps
-    gyro_bias = float(np.median(vehicle_gyro[idle, 2])) if int(idle.sum()) >= 5 else 0.0
+    state = initial_state or _legacy_initial_state(frame)
+    gyro_bias = state.gyro_z_bias_rps
     yaw_rate = vehicle_gyro[:, 2] - gyro_bias
     speed = np.empty(len(frame), dtype=float)
     heading = np.empty(len(frame), dtype=float)
@@ -108,8 +165,8 @@ def classical_nhc_dead_reckoning(
     north = np.zeros(len(frame), dtype=float)
     # The first speed/heading are available at loss time. After this point, no
     # reference position, heading, or speed is read by the integrator.
-    speed[0] = max(0.0, float(frame.gt_speed_mps.iloc[0]))
-    heading[0] = float(frame.gt_heading_rad.iloc[0])
+    speed[0] = state.speed_mps
+    heading[0] = state.heading_rad
     for index in range(1, len(frame)):
         heading[index] = float(wrap_angle(heading[index - 1] + yaw_rate[index] * dt[index]))
         speed[index] = max(0.0, speed[index - 1] + forward_accel[index] * dt[index])
@@ -129,6 +186,8 @@ def learned_velocity_nhc_dead_reckoning(
     calibration: CalibrationResult,
     model: Any,
     normalization: dict[str, np.ndarray],
+    *,
+    initial_state: NavigationInitialState | None = None,
 ) -> DeadReckoningResult:
     """NHC replay using Stage 5 CNN speed while retaining classical heading.
 
@@ -140,7 +199,7 @@ def learned_velocity_nhc_dead_reckoning(
 
     required = {
         "timestamp_s", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
-        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "gt_speed_mps", "gt_heading_rad",
+        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps",
     }
     missing = required.difference(frame.columns)
     if missing:
@@ -161,17 +220,17 @@ def learned_velocity_nhc_dead_reckoning(
         ]
     )
     predicted_tail = np.maximum(0.0, predict_velocity_cnn(model, raw_windows, normalization))
+    state = initial_state or _legacy_initial_state(frame)
     speed = np.empty(len(frame), dtype=float)
-    speed[: window_samples - 1] = max(0.0, float(frame.gt_speed_mps.iloc[0]))
+    speed[: window_samples - 1] = state.speed_mps
     speed[window_samples - 1 :] = predicted_tail
 
     raw_gyro = frame[["gyro_x_rps", "gyro_y_rps", "gyro_z_rps"]].to_numpy(dtype=float)
     vehicle_gyro = apply_mount_rotation(raw_gyro, calibration)
-    idle = frame.gt_speed_mps.to_numpy(dtype=float) <= 0.5
-    gyro_bias = float(np.median(vehicle_gyro[idle, 2])) if int(idle.sum()) >= 5 else 0.0
+    gyro_bias = state.gyro_z_bias_rps
     heading = np.empty(len(frame), dtype=float)
     east, north = np.zeros(len(frame), dtype=float), np.zeros(len(frame), dtype=float)
-    heading[0] = float(frame.gt_heading_rad.iloc[0])
+    heading[0] = state.heading_rad
     for index in range(1, len(frame)):
         heading[index] = float(wrap_angle(heading[index - 1] + (vehicle_gyro[index, 2] - gyro_bias) * dt[index]))
         distance = 0.5 * (speed[index - 1] + speed[index]) * dt[index]

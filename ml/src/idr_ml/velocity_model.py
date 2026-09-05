@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,37 @@ import numpy as np
 from .calibration import CalibrationResult
 from .dead_reckoning import classical_nhc_dead_reckoning
 from .iovnbd import WindowedDataset
+
+
+def file_sha256(path: str | Path) -> str:
+    """Return the content hash used to bind an evaluation to an artifact."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_provenance(path: str | Path) -> dict[str, str | int]:
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(f"required artifact is missing: {source}")
+    return {"path": str(source), "sha256": file_sha256(source), "bytes": source.stat().st_size}
+
+
+@dataclass(frozen=True)
+class PortableVelocityArtifact:
+    """The verified, language-neutral artifact used by a replay."""
+
+    model: dict[str, str | int]
+    normalization: dict[str, str | int]
+    manifest: dict[str, str | int]
+    contract_version: str
+    input_channels: tuple[str, ...]
+    training_provenance: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 def _torch() -> Any:
@@ -58,16 +91,38 @@ class VelocityTrainingResult:
     test_mae_mps: float
     test_rmse_mps: float
     classical_speed_mae_mps: float
+    split_guard_windows: int
+    split_guard_seconds: float
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def _split_indices(count: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _split_indices(
+    count: int,
+    *,
+    guard_windows: int = 0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Make temporal splits with a purge band around each split boundary.
+
+    Adjacent sliding windows share almost all of their IMU samples. Omitting
+    windows immediately following each boundary prevents validation or test
+    inputs from inheriting raw samples from the preceding split.
+    """
     if count < 100:
         raise ValueError("at least 100 windows are required for temporal train/validation/test splits")
+    if guard_windows < 0:
+        raise ValueError("guard_windows must be non-negative")
     train_end, validation_end = int(count * 0.70), int(count * 0.85)
-    return np.arange(train_end), np.arange(train_end, validation_end), np.arange(validation_end, count)
+    validation_start = train_end + guard_windows
+    test_start = validation_end + guard_windows
+    if validation_start >= validation_end or test_start >= count:
+        raise ValueError("temporal split guard leaves no validation or test windows")
+    return (
+        np.arange(train_end),
+        np.arange(validation_start, validation_end),
+        np.arange(test_start, count),
+    )
 
 
 def _mae(prediction: np.ndarray, target: np.ndarray) -> float:
@@ -87,7 +142,21 @@ def train_velocity_cnn(
     torch = _torch()
     torch.manual_seed(seed)
     torch.set_num_threads(min(4, torch.get_num_threads()))
-    train_idx, validation_idx, test_idx = _split_indices(len(windows.features))
+    window_span_s = (windows.features.shape[1] - 1) / windows.sample_rate_hz
+    timestamp_steps = np.diff(windows.timestamps_s)
+    positive_steps = timestamp_steps[timestamp_steps > 0]
+    if len(positive_steps) == 0:
+        raise ValueError("window timestamps must be strictly increasing")
+    # The minimum measured stride is conservative if rejected source gaps
+    # have made some adjacent windows farther apart.
+    window_stride_s = float(np.min(positive_steps))
+    split_guard_windows = max(
+        0,
+        int(np.ceil(window_span_s / window_stride_s - 1e-9)) - 1,
+    )
+    train_idx, validation_idx, test_idx = _split_indices(
+        len(windows.features), guard_windows=split_guard_windows
+    )
     # Channel-wise statistics are fitted only on the temporal training block.
     train_features = windows.features[train_idx]
     mean = train_features.mean(axis=(0, 1), keepdims=True).astype(np.float32)
@@ -133,6 +202,8 @@ def train_velocity_cnn(
         test_mae_mps=_mae(prediction[test_idx], target[test_idx]),
         test_rmse_mps=float(np.sqrt(np.mean(np.square(prediction[test_idx] - target[test_idx])))),
         classical_speed_mae_mps=_mae(classical_speed, target[test_idx]),
+        split_guard_windows=split_guard_windows,
+        split_guard_seconds=split_guard_windows * window_stride_s,
     )
     normalization = {
         "feature_mean": mean.reshape(-1), "feature_std": std.reshape(-1),
@@ -152,6 +223,145 @@ def save_velocity_artifact(model: Any, normalization: dict[str, np.ndarray], out
     np.savez(destination / "normalization.npz", **normalization)
 
 
+class PortableOnnxVelocityModel:
+    """Small adapter that exposes committed ONNX output to replay code."""
+
+    def __init__(self, session: Any, *, input_name: str, output_name: str) -> None:
+        self._session = session
+        self._input_name = input_name
+        self._output_name = output_name
+
+    def predict_normalized(self, channel_time: np.ndarray) -> np.ndarray:
+        values = np.asarray(channel_time, dtype=np.float32)
+        if values.ndim != 3 or values.shape[1:] != (9, 20):
+            raise ValueError("portable ONNX velocity model requires [batch, 9, 20] input")
+        # The exported graph has a fixed batch dimension of one. Calling it
+        # per window keeps Stage 12 faithful to the deployed artifact rather
+        # than silently substituting a PyTorch batch implementation.
+        output: list[float] = []
+        for window in values:
+            value = self._session.run([self._output_name], {self._input_name: window[None, ...]})[0]
+            output.append(float(np.asarray(value).reshape(-1)[0]))
+        return np.asarray(output, dtype=np.float32)
+
+
+def _portable_normalization(path: Path) -> dict[str, np.ndarray]:
+    try:
+        source = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read portable velocity normalization {path}: {error}") from error
+    required = {"feature_mean", "feature_std", "target_mean", "target_std", "sample_rate_hz"}
+    if missing := required.difference(source):
+        raise ValueError(f"portable velocity normalization missing: {sorted(missing)}")
+    mean = np.asarray(source["feature_mean"], dtype=np.float32)
+    std = np.asarray(source["feature_std"], dtype=np.float32)
+    if mean.shape != (9,) or std.shape != (9,) or not np.isfinite(mean).all() or not np.isfinite(std).all():
+        raise ValueError("portable velocity normalization must contain nine finite feature statistics")
+    if np.any(std <= 0):
+        raise ValueError("portable velocity normalization feature_std must be positive")
+    target_mean = float(source["target_mean"])
+    target_std = float(source["target_std"])
+    sample_rate_hz = float(source["sample_rate_hz"])
+    if not np.isfinite([target_mean, target_std, sample_rate_hz]).all() or target_std <= 0 or sample_rate_hz <= 0:
+        raise ValueError("portable velocity normalization target/sample-rate values are invalid")
+    return {
+        "feature_mean": mean,
+        "feature_std": std,
+        "target_mean": np.asarray(target_mean, dtype=np.float32),
+        "target_std": np.asarray(target_std, dtype=np.float32),
+        "sample_rate_hz": np.asarray(sample_rate_hz, dtype=np.float32),
+    }
+
+
+def load_portable_onnx_velocity_artifact(
+    model_path: str | Path,
+    normalization_path: str | Path,
+    manifest_path: str | Path,
+) -> tuple[PortableOnnxVelocityModel, dict[str, np.ndarray], PortableVelocityArtifact]:
+    """Load only a hash-bound portable ONNX model for reproducible replay.
+
+    A local `ml/artifacts` checkpoint is deliberately not accepted here: it is
+    ignored by Git and can describe an older preprocessing contract.
+    """
+    model_source, normalization_source, manifest_source = (
+        Path(model_path),
+        Path(normalization_path),
+        Path(manifest_path),
+    )
+    for source in (model_source, normalization_source, manifest_source):
+        if not source.is_file():
+            raise FileNotFoundError(
+                f"portable Stage 12 artifact missing: {source}. Run Stage 10 export and use shared/models artifacts."
+            )
+    try:
+        manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read portable velocity manifest {manifest_source}: {error}") from error
+    if manifest.get("format") != "onnx" or manifest.get("model_name") != "tiny_velocity_cnn":
+        raise ValueError("portable Stage 12 artifact is not the expected tiny_velocity_cnn ONNX bundle")
+    if Path(str(manifest.get("model_file", ""))).name != model_source.name:
+        raise ValueError("portable manifest model_file does not match the selected ONNX model")
+    normalization = manifest.get("normalization", {})
+    if Path(str(normalization.get("file", ""))).name != normalization_source.name:
+        raise ValueError("portable manifest normalization file does not match the selected normalizer")
+    input_spec = manifest.get("input", {})
+    expected_channels = (
+        "linear_accel_forward_mps2", "linear_accel_right_mps2", "linear_accel_down_mps2",
+        "gyro_forward_rps", "gyro_right_rps", "gyro_down_rps",
+        "mag_forward_unit", "mag_right_unit", "mag_down_unit",
+    )
+    if tuple(input_spec.get("channels", [])) != expected_channels or input_spec.get("shape") != [1, 9, 20]:
+        raise ValueError("portable ONNX manifest input contract is not the calibrated 9-channel 2-second model")
+    hashes = manifest.get("artifact_sha256")
+    if not isinstance(hashes, dict):
+        raise ValueError("portable ONNX manifest lacks artifact_sha256; re-run Stage 10 export before evaluating")
+    if hashes.get("model") != file_sha256(model_source) or hashes.get("normalization") != file_sha256(normalization_source):
+        raise ValueError("portable ONNX model/normalizer hash does not match its manifest; refuse stale or mixed artifacts")
+    training_provenance = manifest.get("training_provenance")
+    calibration_provenance = (
+        training_provenance.get("calibration") if isinstance(training_provenance, dict) else None
+    )
+    if (
+        not isinstance(training_provenance, dict)
+        or not isinstance(training_provenance.get("clock_alignment"), dict)
+        or not isinstance(calibration_provenance, dict)
+        or not isinstance(calibration_provenance.get("calibration_time_end_exclusive_s"), (int, float))
+        or training_provenance.get("calibration_alignment_verified") is not True
+        or not isinstance(training_provenance.get("stage5_metrics"), dict)
+        or not isinstance(training_provenance.get("trained_artifacts"), dict)
+    ):
+        raise ValueError(
+            "portable ONNX manifest lacks verified Stage 5 provenance; retrain Stage 5 and re-run Stage 10 export"
+        )
+
+    try:
+        import onnxruntime as ort
+    except ImportError as error:  # pragma: no cover - local runtime dependency
+        raise RuntimeError("ONNX Runtime is required for Stage 12 portable evaluation; install onnxruntime in ml/.vendor") from error
+    try:
+        session = ort.InferenceSession(str(model_source), providers=["CPUExecutionProvider"])
+    except Exception as error:  # pragma: no cover - runtime-specific diagnostics
+        raise RuntimeError(f"cannot open portable ONNX model {model_source}: {error}") from error
+    inputs, outputs = session.get_inputs(), session.get_outputs()
+    if len(inputs) != 1 or len(outputs) != 1 or inputs[0].name != input_spec.get("name"):
+        raise ValueError("portable ONNX graph does not match its manifest input/output schema")
+    runtime_shape = tuple(inputs[0].shape)
+    if runtime_shape != (1, 9, 20):
+        raise ValueError(f"portable ONNX graph input shape {runtime_shape!r} is not (1, 9, 20)")
+    return (
+        PortableOnnxVelocityModel(session, input_name=inputs[0].name, output_name=outputs[0].name),
+        _portable_normalization(normalization_source),
+        PortableVelocityArtifact(
+            model=file_provenance(model_source),
+            normalization=file_provenance(normalization_source),
+            manifest=file_provenance(manifest_source),
+            contract_version=str(manifest.get("contract_version", "unknown")),
+            input_channels=expected_channels,
+            training_provenance=training_provenance,
+        ),
+    )
+
+
 def load_velocity_artifact(artifact_dir: str | Path) -> tuple[Any, dict[str, np.ndarray]]:
     """Load the compact model and preprocessing captured at Stage 5."""
     torch = _torch()
@@ -167,11 +377,16 @@ def load_velocity_artifact(artifact_dir: str | Path) -> tuple[Any, dict[str, np.
 
 def predict_velocity_cnn(model: Any, features: np.ndarray, normalization: dict[str, np.ndarray]) -> np.ndarray:
     """Predict speed at each window endpoint from unnormalized IMU windows."""
-    torch = _torch()
     values = np.asarray(features, dtype=np.float32)
+    if values.ndim != 3 or values.shape[2] != 9:
+        raise ValueError("velocity prediction requires [batch, time, 9] unnormalized features")
     mean = np.asarray(normalization["feature_mean"], dtype=np.float32).reshape(1, 1, -1)
     std = np.asarray(normalization["feature_std"], dtype=np.float32).reshape(1, 1, -1)
     normalized = ((values - mean) / np.maximum(std, 1e-4)).transpose(0, 2, 1)
-    with torch.no_grad():
-        output = model(torch.from_numpy(normalized)).cpu().numpy()
+    if hasattr(model, "predict_normalized"):
+        output = model.predict_normalized(normalized)
+    else:
+        torch = _torch()
+        with torch.no_grad():
+            output = model(torch.from_numpy(normalized)).cpu().numpy()
     return output * float(normalization["target_std"]) + float(normalization["target_mean"])

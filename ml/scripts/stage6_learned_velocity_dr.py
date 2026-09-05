@@ -7,7 +7,12 @@ import json
 from pathlib import Path
 
 from idr_ml.calibration import CalibrationResult
-from idr_ml.dead_reckoning import learned_velocity_nhc_dead_reckoning, measure_drift, select_blackout
+from idr_ml.dead_reckoning import (
+    initial_state_from_preoutage_reference,
+    learned_velocity_nhc_dead_reckoning,
+    measure_drift,
+    select_blackout,
+)
 from idr_ml.iovnbd import load_synchronized_pair
 from idr_ml.velocity_model import load_velocity_artifact
 
@@ -26,10 +31,19 @@ def main() -> None:
     frame = load_synchronized_pair(args.smartphone, args.vehicle, nrows=args.max_rows)
     calibration_data = json.loads(args.calibration.read_text(encoding="utf-8"))
     calibration_data.pop("stage", None)
+    calibration_data.pop("input_provenance", None)
     calibration = CalibrationResult(**calibration_data)
     blackout = select_blackout(frame, start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
     model, normalization = load_velocity_artifact(args.artifact_dir)
-    result = learned_velocity_nhc_dead_reckoning(blackout, calibration, model, normalization)
+    loss_reference = frame.loc[frame.timestamp_s <= float(blackout.timestamp_s.iloc[0]) + 1e-6].tail(1)
+    blackout_inputs = blackout.drop(columns=[column for column in blackout if column.startswith("gt_")])
+    result = learned_velocity_nhc_dead_reckoning(
+        blackout_inputs,
+        calibration,
+        model,
+        normalization,
+        initial_state=initial_state_from_preoutage_reference(loss_reference, calibration),
+    )
     metrics = measure_drift(blackout, result)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result.as_frame().to_csv(args.output_dir / "trajectory.csv", index=False)

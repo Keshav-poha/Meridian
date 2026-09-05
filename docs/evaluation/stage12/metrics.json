@@ -9,37 +9,202 @@
   "pre_outage_history_seconds": 60.0,
   "sample_rate_hz": 9.999999999997726,
   "residual": {
-    "speed_scale": 0.9,
+    "speed_scale": 1.0,
     "speed_bias_mps": 0.0,
     "yaw_scale": 1.0,
     "yaw_bias_rps": 0.0,
-    "history_samples": 601
+    "history_samples": 600,
+    "speed_correlation": 0.11079472245221125,
+    "speed_adaptation_applied": false,
+    "yaw_correlation": 0.007083583246753452,
+    "yaw_adaptation_applied": false
+  },
+  "fusion_safeguard": {
+    "mode": "learned_nhc_fallback_weak_preoutage_fit",
+    "speed_adaptation_applied": false,
+    "yaw_adaptation_applied": false
+  },
+  "provenance": {
+    "portable_velocity_artifact": {
+      "model": {
+        "path": "shared\\models\\velocity_cnn.onnx",
+        "sha256": "78abd208d418c8bd6b7e7b47cf75c580f6a129f3d58551cc51787be2ec3076e6",
+        "bytes": 5387
+      },
+      "normalization": {
+        "path": "shared\\models\\velocity_cnn.normalization.json",
+        "sha256": "9a34960603207466bc54a7f92d175a07d17f39c89bf8f96f0449176e039e0960",
+        "bytes": 617
+      },
+      "manifest": {
+        "path": "shared\\models\\velocity_cnn.onnx.manifest.json",
+        "sha256": "d13eb6ea62089a84f9cb2b00b8ea07a93728191a150f5f88f7f8264ba3560750",
+        "bytes": 3849
+      },
+      "contract_version": "0.2.0",
+      "input_channels": [
+        "linear_accel_forward_mps2",
+        "linear_accel_right_mps2",
+        "linear_accel_down_mps2",
+        "gyro_forward_rps",
+        "gyro_right_rps",
+        "gyro_down_rps",
+        "mag_forward_unit",
+        "mag_right_unit",
+        "mag_down_unit"
+      ],
+      "training_provenance": {
+        "clock_alignment": {
+          "method": "gnss_speed_cross_correlation",
+          "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+          "speed_correlation": 0.9802741273880347,
+          "zero_offset_speed_correlation": 0.9509513557718806,
+          "correlation_improvement": 0.029322771616154042,
+          "median_absolute_speed_error_mps": 0.2727777777822116,
+          "matched_samples": 4961,
+          "candidate_offsets_tested": 201,
+          "validation_passed": true
+        },
+        "smartphone_gnss_speed_unit": "mps",
+        "clock_offset_override_s": null,
+        "max_rows": 5000,
+        "max_interpolation_gap_s": 0.25,
+        "smartphone_source": {
+          "path": "ml\\data\\raw\\iovnbd_m\\S-M.csv",
+          "sha256": "26a1ee080da4db98e175e15d6fec631e6f8c285c13817d9d74ecc90ed280d103",
+          "bytes": 19798721
+        },
+        "vehicle_source": {
+          "path": "ml\\data\\raw\\iovnbd_m\\V-M.csv",
+          "sha256": "ecf977cb798082d59ad1b03ce5631a61dbf525dfe484eb005ca630b5e95b86af",
+          "bytes": 22507823
+        },
+        "calibration_artifact": {
+          "path": "ml\\reports\\stage3\\calibration.json",
+          "sha256": "36e0af9c4119b425333e657d8aa75e44a3e59525eae612305b485eb0b39ea12a",
+          "bytes": 1452
+        },
+        "calibration": {
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+            "speed_correlation": 0.9802741273880347,
+            "zero_offset_speed_correlation": 0.9509513557718806,
+            "correlation_improvement": 0.029322771616154042,
+            "median_absolute_speed_error_mps": 0.2727777777822116,
+            "matched_samples": 4961,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          },
+          "max_interpolation_gap_s": 0.25,
+          "smartphone_gnss_speed_unit": "mps",
+          "clock_offset_override_s": null,
+          "max_rows": 5000,
+          "calibration_samples": 4261,
+          "calibration_time_start_s": 3.9,
+          "calibration_time_end_exclusive_s": 430.0
+        },
+        "calibration_alignment_verified": true,
+        "stage5_metrics": {
+          "path": "ml\\reports\\stage5\\metrics.json",
+          "sha256": "4472b1c66d73d4ac00762f7325670e208db03e6e65e5b8297023af23722f958d",
+          "bytes": 2908
+        },
+        "trained_artifacts": {
+          "model": {
+            "path": "ml\\artifacts\\velocity_cnn\\velocity_cnn.pt",
+            "sha256": "e8d6423fef37343ef2dd89e709887e892c83ed05265ea1f59302cfeb28f8b4c5",
+            "bytes": 7057
+          },
+          "normalization": {
+            "path": "ml\\artifacts\\velocity_cnn\\normalization.npz",
+            "sha256": "9a269d6fd9b0a136ceed08b351dc5319c8290186cef951c49362fc8fa2ccca86",
+            "bytes": 1382
+          }
+        }
+      }
+    },
+    "inference_backend": "onnxruntime CPUExecutionProvider",
+    "calibration": {
+      "path": "ml\\reports\\stage3\\calibration.json",
+      "sha256": "36e0af9c4119b425333e657d8aa75e44a3e59525eae612305b485eb0b39ea12a",
+      "bytes": 1452
+    },
+    "calibration_input_provenance": {
+      "clock_alignment": {
+        "method": "gnss_speed_cross_correlation",
+        "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+        "speed_correlation": 0.9802741273880347,
+        "zero_offset_speed_correlation": 0.9509513557718806,
+        "correlation_improvement": 0.029322771616154042,
+        "median_absolute_speed_error_mps": 0.2727777777822116,
+        "matched_samples": 4961,
+        "candidate_offsets_tested": 201,
+        "validation_passed": true
+      },
+      "max_interpolation_gap_s": 0.25,
+      "smartphone_gnss_speed_unit": "mps",
+      "clock_offset_override_s": null,
+      "max_rows": 5000,
+      "calibration_samples": 4261,
+      "calibration_time_start_s": 3.9,
+      "calibration_time_end_exclusive_s": 430.0
+    },
+    "calibration_alignment_verified": true,
+    "calibration_temporal_boundary_verified": true,
+    "blackout_inference_input_excludes_ground_truth": true,
+    "initial_state_source": "last_GNSS_fix_at_loss_boundary_vehicle_proxy",
+    "initial_state_timestamp_s": 430.00000000000034,
+    "replay_clock_alignment": {
+      "method": "gnss_speed_cross_correlation",
+      "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+      "speed_correlation": 0.9802741273880347,
+      "zero_offset_speed_correlation": 0.9509513557718806,
+      "correlation_improvement": 0.029322771616154042,
+      "median_absolute_speed_error_mps": 0.2727777777822116,
+      "matched_samples": 4961,
+      "candidate_offsets_tested": 201,
+      "validation_passed": true
+    },
+    "smartphone_source": {
+      "path": "ml\\data\\raw\\iovnbd_m\\S-M.csv",
+      "sha256": "26a1ee080da4db98e175e15d6fec631e6f8c285c13817d9d74ecc90ed280d103",
+      "bytes": 19798721
+    },
+    "vehicle_source": {
+      "path": "ml\\data\\raw\\iovnbd_m\\V-M.csv",
+      "sha256": "ecf977cb798082d59ad1b03ce5631a61dbf525dfe484eb005ca630b5e95b86af",
+      "bytes": 22507823
+    },
+    "smartphone_gnss_speed_unit": "mps",
+    "clock_offset_override_s": null,
+    "max_rows": 5000
   },
   "acceptance": {
     "max_drift_percent": 10.0,
-    "observed_drift_percent": 7.903299965075186,
+    "observed_drift_percent": 7.931050224294542,
     "passes": true
   },
   "metrics": {
     "classical_nhc": {
-      "distance_travelled_m": 676.9153243675794,
-      "end_position_error_m": 460.8426028712471,
-      "trajectory_rmse_m": 225.73387932389366,
-      "drift_percent": 68.0798005720727,
+      "distance_travelled_m": 689.814394856104,
+      "end_position_error_m": 440.53464994635186,
+      "trajectory_rmse_m": 216.56977379272377,
+      "drift_percent": 63.86278007988626,
       "update_rate_hz": 9.999999999997726
     },
     "learned_speed_nhc": {
-      "distance_travelled_m": 676.9153243675794,
-      "end_position_error_m": 107.89426602645382,
-      "trajectory_rmse_m": 42.626026880703854,
-      "drift_percent": 15.93910820784801,
+      "distance_travelled_m": 689.814394856104,
+      "end_position_error_m": 54.70952611045107,
+      "trajectory_rmse_m": 31.729425155648503,
+      "drift_percent": 7.931050224294542,
       "update_rate_hz": 9.999999999997726
     },
     "masked_gnss_adaptive_fusion": {
-      "distance_travelled_m": 676.9153243675794,
-      "end_position_error_m": 53.498648594331485,
-      "trajectory_rmse_m": 35.61474692694927,
-      "drift_percent": 7.903299965075186,
+      "distance_travelled_m": 689.814394856104,
+      "end_position_error_m": 54.70952611045107,
+      "trajectory_rmse_m": 31.729425155648503,
+      "drift_percent": 7.931050224294542,
       "update_rate_hz": 9.999999999997726
     }
   },

@@ -7,7 +7,12 @@ import json
 from pathlib import Path
 
 from idr_ml.calibration import CalibrationResult
-from idr_ml.dead_reckoning import classical_nhc_dead_reckoning, measure_drift, select_blackout
+from idr_ml.dead_reckoning import (
+    classical_nhc_dead_reckoning,
+    initial_state_from_preoutage_reference,
+    measure_drift,
+    select_blackout,
+)
 from idr_ml.iovnbd import load_synchronized_pair
 
 
@@ -18,15 +23,24 @@ def main() -> None:
     parser.add_argument("--calibration", type=Path, default=Path("ml/reports/stage3/calibration.json"))
     parser.add_argument("--output-dir", type=Path, default=Path("ml/reports/stage4"))
     parser.add_argument("--max-rows", type=int, default=5000)
-    parser.add_argument("--start-seconds", type=float, default=60.0)
+    # The default matches the post-calibration held-out interval. Choosing an
+    # earlier blackout would let the default calibration see evaluation data.
+    parser.add_argument("--start-seconds", type=float, default=430.0)
     parser.add_argument("--duration-seconds", type=float, default=60.0)
     args = parser.parse_args()
     frame = load_synchronized_pair(args.smartphone, args.vehicle, nrows=args.max_rows)
     calibration_data = json.loads(args.calibration.read_text(encoding="utf-8"))
     calibration_data.pop("stage", None)
+    calibration_data.pop("input_provenance", None)
     calibration = CalibrationResult(**calibration_data)
     blackout = select_blackout(frame, start_seconds=args.start_seconds, duration_seconds=args.duration_seconds)
-    result = classical_nhc_dead_reckoning(blackout, calibration)
+    loss_reference = frame.loc[frame.timestamp_s <= float(blackout.timestamp_s.iloc[0]) + 1e-6].tail(1)
+    blackout_inputs = blackout.drop(columns=[column for column in blackout if column.startswith("gt_")])
+    result = classical_nhc_dead_reckoning(
+        blackout_inputs,
+        calibration,
+        initial_state=initial_state_from_preoutage_reference(loss_reference, calibration),
+    )
     metrics = measure_drift(blackout, result)
     if not all(value == value and abs(value) != float("inf") for value in metrics.as_dict().values()):
         raise SystemExit("baseline produced non-finite metrics")
