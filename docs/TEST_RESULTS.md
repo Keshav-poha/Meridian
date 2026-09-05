@@ -18,6 +18,20 @@ repeats the unit and build checks on every push and pull request.
 The position plot, sample-level trajectory, and machine-readable metric report
 are in [Stage 12 evaluation](evaluation/stage12/README.md).
 
+## 5 September 2026 — live Android smoke test
+
+| Check | Result |
+| --- | --- |
+| Device and permissions | Android 16 physical device; live accelerometer, gyroscope, magnetometer, and fused GNSS data reached Developer Mode. |
+| GNSS request | High-accuracy request accepted at 1 second. The Android fused provider batched stationary callbacks at about 5 seconds, so the runtime uses an 8-second freshness watchdog to avoid false loss banners. |
+| Parked-phone false velocity | The IO-VNBD CNN emitted a raw 7.46 m/s on a stationary phone. Motion gating held navigation velocity at 0.00 m/s and the displayed GPS-vs-prediction error at 0.0 m. |
+| Hand-held false velocity mitigation | A GNSS vehicle-motion latch now rejects CNN speed until a live GNSS fix has confirmed vehicle motion. The installed debug build showed 0.0 m/s from an unarmed stationary start. |
+| Build and focused regression tests | `flutter analyze`: no issues; `flutter test`: 4 passed; `flutter build apk --debug`: built successfully. |
+
+This is a static-device smoke test, not a replacement for the held-out
+IO-VNBD replay. A moving 50 m/1 km blackout run is still required to measure
+physical-device drift, transition latency, and update rate.
+
 ## Reproduce locally
 
 ```powershell
@@ -31,6 +45,6 @@ py -3.13 ml/scripts/stage12_evaluate.py
 & 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' build apk --debug
 ```
 
-The held-out replay is an offline dataset result. No physical Android device
-has been used for a sensor/GNSS permission, latency, or live-navigation test
-yet; that is the next validation step.
+The held-out replay is an offline dataset result. The physical Android smoke
+test above validates sensor, GNSS, and static motion safety; it does not yet
+validate moving-device drift or the <10% target.

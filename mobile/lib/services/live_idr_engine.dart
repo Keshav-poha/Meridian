@@ -6,6 +6,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import '../domain/telemetry_snapshot.dart';
 import 'idr_engine.dart';
+import 'motion_gate.dart';
 import 'tflite_velocity_estimator.dart';
 
 /// Live mobile bridge for the Stage 4/5/9 pipeline.
@@ -14,8 +15,16 @@ import 'tflite_velocity_estimator.dart';
 /// positions are retained strictly as a Developer Mode ground-truth comparator;
 /// they are never used to update the displayed inertial position.
 class LiveIdrEngine implements IdrEngine {
+  // Android may batch stationary fused-location callbacks even when a
+  // one-second interval is requested. Keep the UI in GNSS-aided mode across
+  // that normal five-second cadence; manual outage simulation remains
+  // immediate because it bypasses this watchdog.
+  static const _gnssFixTimeout = Duration(seconds: 8);
+
   final StreamController<TelemetrySnapshot> _telemetry =
       StreamController<TelemetrySnapshot>.broadcast();
+  final MotionGate _motionGate = MotionGate();
+  final VehicleMotionLatch _vehicleMotionLatch = VehicleMotionLatch();
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
@@ -35,7 +44,10 @@ class LiveIdrEngine implements IdrEngine {
   Axis3 _magnetometer = const Axis3(0, 0, 0);
   double _headingDegrees = 0;
   double _speedMps = 0;
+  double _modelSpeedMps = 0;
   double _drDistanceM = 0;
+  bool _stationary = false;
+  bool _vehicleMotionArmed = false;
   bool _started = false;
   bool _gnssEnabled = true;
 
@@ -74,9 +86,10 @@ class LiveIdrEngine implements IdrEngine {
         permission == LocationPermission.deniedForever) {
       return;
     }
-    const settings = LocationSettings(
+    final settings = AndroidSettings(
       accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: 0,
+      intervalDuration: Duration(seconds: 1),
     );
     _positionSubscription =
         Geolocator.getPositionStream(locationSettings: settings)
@@ -100,10 +113,12 @@ class LiveIdrEngine implements IdrEngine {
       _lossStarted = DateTime.now();
       _reacquireStarted = null;
       _predicted ??= _lastAccurate;
+      if (_started) _tick();
       return;
     }
     _reacquireStarted = DateTime.now();
     _reacquireFrom = _predicted;
+    if (_started) _tick();
   }
 
   void _tick() {
@@ -112,10 +127,29 @@ class LiveIdrEngine implements IdrEngine {
     final dt =
         math.max(0.001, now.difference(previousTick).inMicroseconds / 1e6);
     _lastTick = now;
+    final freshFix = _actualPosition != null &&
+        now.difference(_actualPosition!.timestamp) <= _gnssFixTimeout;
+    final gnssReportsMotion = _gnssEnabled &&
+        freshFix &&
+        _actualPosition!.speed.isFinite &&
+        _actualPosition!.speed >= 0.7;
+    _vehicleMotionArmed = _vehicleMotionLatch.update(
+      gnssEnabled: _gnssEnabled,
+      gnssFixFresh: freshFix,
+      gnssReportsMotion: gnssReportsMotion,
+    );
+    _stationary = _motionGate.update(
+      accelerometer: _accelerometer,
+      gyroscope: _gyroscope,
+      gnssReportsMotion: gnssReportsMotion,
+    );
     final inferredSpeed = _velocityEstimator?.estimate();
     if (inferredSpeed != null && inferredSpeed.isFinite) {
-      _speedMps = inferredSpeed.clamp(0.0, 55.0).toDouble();
+      _modelSpeedMps = inferredSpeed.clamp(0.0, 55.0).toDouble();
     }
+    final modelVelocityAllowed =
+        gnssReportsMotion || (!_gnssEnabled && _vehicleMotionLatch.armed);
+    _speedMps = _stationary || !modelVelocityAllowed ? 0.0 : _modelSpeedMps;
 
     final sourceHeading = _actualPosition == null
         ? null
@@ -123,23 +157,24 @@ class LiveIdrEngine implements IdrEngine {
     _headingDegrees = sourceHeading ??
         ((_headingDegrees + _gyroscope.z * dt * 180 / math.pi) % 360);
     if (_headingDegrees < 0) _headingDegrees += 360;
-    _advancePrediction(dt);
-
-    final freshFix = _actualPosition != null &&
-        now.difference(_actualPosition!.timestamp).inSeconds <= 2;
     final mode = _navigationMode(freshFix);
+    // GNSS-aided display is corrected directly by incoming fixes; only
+    // advance the inertial position during an outage or reacquisition.
+    if (mode != NavigationMode.gnssAidedIns) _advancePrediction(dt);
     final display = _displayPosition(mode, now);
     if (display == null) return;
     final actual = _actualPosition == null
         ? null
         : _LocalPosition(_actualPosition!.latitude, _actualPosition!.longitude);
-    final error = actual == null
-        ? double.nan
-        : _distanceMeters(_predicted ?? display, actual);
+    final error =
+        actual == null ? double.nan : _distanceMeters(display, actual);
     _telemetry.add(TelemetrySnapshot(
       timestamp: now,
       mode: mode,
       speedMps: _speedMps,
+      modelSpeedMps: _modelSpeedMps,
+      stationary: _stationary,
+      vehicleMotionArmed: _vehicleMotionArmed,
       headingDeg: _headingDegrees,
       latitudeDeg: display.latitude,
       longitudeDeg: display.longitude,

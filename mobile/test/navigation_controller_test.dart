@@ -21,6 +21,7 @@ void main() {
     expect(controller.routeEditorVisible, isTrue);
     await controller.setGnssEnabled(false);
     expect(engine.gnssEnabled, isFalse);
+    expect(controller.gnssEnabled, isFalse);
     controller.selectTab(MeridianTab.developer);
     expect(controller.tab, MeridianTab.developer);
     controller.dispose();
@@ -46,6 +47,9 @@ TelemetrySnapshot _snapshot() => TelemetrySnapshot(
       timestamp: DateTime(2026, 9, 4),
       mode: NavigationMode.gnssAidedIns,
       speedMps: 4.2,
+      modelSpeedMps: 4.2,
+      stationary: false,
+      vehicleMotionArmed: true,
       headingDeg: 135,
       latitudeDeg: 28.61390,
       longitudeDeg: 77.2090,

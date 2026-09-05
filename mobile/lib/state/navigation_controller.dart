@@ -19,6 +19,7 @@ class NavigationController extends ChangeNotifier {
   MeridianTab tab = MeridianTab.navigation;
   bool booting = true;
   bool routeEditorVisible = false;
+  bool gnssEnabled = true;
   LatLng? destination;
 
   Future<void> start() async {
@@ -52,6 +53,9 @@ class NavigationController extends ChangeNotifier {
   }
 
   Future<void> setGnssEnabled(bool enabled) async {
+    if (gnssEnabled == enabled) return;
+    gnssEnabled = enabled;
+    notifyListeners();
     await _engine.setGnssEnabled(enabled);
     notifyListeners();
   }

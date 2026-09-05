@@ -14,6 +14,9 @@ class TelemetrySnapshot {
     required this.timestamp,
     required this.mode,
     required this.speedMps,
+    required this.modelSpeedMps,
+    required this.stationary,
+    required this.vehicleMotionArmed,
     required this.headingDeg,
     required this.latitudeDeg,
     required this.longitudeDeg,
@@ -36,6 +39,9 @@ class TelemetrySnapshot {
   final DateTime timestamp;
   final NavigationMode mode;
   final double speedMps;
+  final double modelSpeedMps;
+  final bool stationary;
+  final bool vehicleMotionArmed;
   final double headingDeg;
   final double latitudeDeg;
   final double longitudeDeg;

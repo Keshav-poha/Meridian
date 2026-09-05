@@ -41,7 +41,9 @@ documented dataset/model setup.
 
 ## Validation boundary
 
-Offline IO-VNBD replay and package compilation are complete. Live-device
-validation remains separate: install the debug APK on an Android phone, grant
-location permission, inspect live Developer Mode telemetry, simulate a GNSS
-outage, and record the resulting comparison-card error and update rate.
+Offline IO-VNBD replay and package compilation are complete. A physical
+Android smoke test has verified live sensor/GNSS telemetry and safeguards
+against stationary or hand-held false speed; see
+[`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md). A moving-device blackout run
+is still required to measure physical drift, transition latency, and update
+rate against the <10% target.

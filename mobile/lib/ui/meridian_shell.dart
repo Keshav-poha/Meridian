@@ -454,7 +454,7 @@ class DeveloperModeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
     final snapshot = controller.snapshot;
-    final enabled = snapshot?.gnssEnabled ?? true;
+    final enabled = controller.gnssEnabled;
     return Column(children: [
       MeridianTopBar(title: 'DEV MODE', onSearch: () {}),
       Expanded(
@@ -472,11 +472,18 @@ class DeveloperModeScreen extends StatelessWidget {
                     child: Text('GPS/GNSS',
                         style: TextStyle(
                             fontWeight: FontWeight.w800, fontSize: 23))),
-                FilledButton(
-                  onPressed: () => controller.setGnssEnabled(!enabled),
-                  style: FilledButton.styleFrom(
-                      backgroundColor: enabled ? _panelLight : _blue),
-                  child: Text(enabled ? 'Disable' : 'Enable'),
+                Semantics(
+                  label: enabled
+                      ? 'Disable GNSS outage simulator'
+                      : 'Enable GNSS outage simulator',
+                  button: true,
+                  child: FilledButton(
+                    key: const ValueKey('gnss-outage-toggle'),
+                    onPressed: () => controller.setGnssEnabled(!enabled),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: enabled ? _panelLight : _blue),
+                    child: Text(enabled ? 'Disable' : 'Enable'),
+                  ),
                 ),
               ]),
             ),
@@ -565,6 +572,24 @@ class _RawSensorData extends StatelessWidget {
             Expanded(
                 child: _AxisTile('Magnetometer', 'µT', snapshot?.magnetometer)),
           ]),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+                color: _panelLight, borderRadius: BorderRadius.circular(18)),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Motion gate',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 7),
+              Text(snapshot == null
+                  ? 'Awaiting IMU window'
+                  : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
+                      '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
+                      'Velocity CNN: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
+            ]),
+          ),
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
