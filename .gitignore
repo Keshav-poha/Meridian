@@ -51,6 +51,3 @@ mobile/android/key.properties
 .vscode/
 Thumbs.db
 .DS_Store
-
-# Local coding-assistant state
-.meridian/

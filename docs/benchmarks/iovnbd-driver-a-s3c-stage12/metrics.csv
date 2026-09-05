@@ -1,0 +1,3 @@
+method,distance_travelled_m,end_position_error_m,trajectory_rmse_m,drift_percent,update_rate_hz
+forward_acceleration_ins,1867.619751,96.337266,32.772227,5.158291,10.000000
+ai_assisted_gnss_anchored_ins,1867.619751,94.882252,31.689642,5.080384,10.000000

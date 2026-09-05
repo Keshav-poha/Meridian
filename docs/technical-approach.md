@@ -4,7 +4,7 @@ This document describes the methods that are implemented today and separates the
 
 ## Data synchronization and input contract
 
-The ML pipeline loads paired IO-VNBD smartphone and vehicle CSV files, fits the phone-to-vehicle clock offset, and continuously interpolates onto a 10 Hz timeline. The current tracked Driver B replay uses a −3.9 s offset (`vehicle time = phone time − 3.9 s`). An interpolation gap over 0.25 s invalidates a window instead of being silently bridged.
+The ML pipeline loads paired IO-VNBD smartphone and vehicle CSV files, fits the phone-to-vehicle clock offset, and continuously interpolates onto a 10 Hz timeline. The current tracked replay is the recording-disjoint Driver A S3c drive. An interpolation gap over 0.25 s invalidates a window instead of being silently bridged.
 
 The model contract is a 2-second window with 20 samples and nine channels:
 
@@ -77,9 +77,9 @@ v_vehicle = [forward_speed, 0, 0]
 ```
 
 This prevents bumps or mount shake from being treated as side-slip or vertical
-travel. The tracked 60-second replay result (54.71 m over 689.81 m, 7.93%
-drift) belongs to the legacy static-calibration artifact; it is retained as a
-historical position plot and not asserted for the v2 model.
+travel. The current runtime-equivalent 59.9-second replay ends at 94.88 m over
+1,867.62 m (5.08% drift) while using the deployable ONNX artifact and the same
+bounded GNSS-anchored speed state as the mobile runtime.
 
 ## Map matching
 
@@ -93,7 +93,7 @@ On the tracked offline replay, 282 of 600 points were safely accepted and trajec
 
 Implementation: [`ml/src/idr_ml/fusion.py`](../ml/src/idr_ml/fusion.py), [`ml/src/idr_ml/mode_switch.py`](../ml/src/idr_ml/mode_switch.py), and [`mobile/lib/services/live_idr_engine.dart`](../mobile/lib/services/live_idr_engine.dart).
 
-The current offline fusion is an adaptive residual replay, not an Unscented Kalman Filter. It fits speed/yaw residuals only from pre-outage GNSS-aided history, checks correlation, and withholds the correction when the fit is weak. In the tracked evaluation, both residual corrections were withheld because their correlations were too weak; the output safely falls back to learned NHC instead of claiming a fusion gain.
+The current offline fusion is a GNSS-anchored inertial replay, not an Unscented Kalman Filter. It starts at the final pre-outage GNSS speed/course, integrates vehicle-frame acceleration and yaw, and admits only a bounded model rate correction. The held-out replay measures the same equations used by the mobile speed filter; it does not claim a complete live measurement-update filter.
 
 The mobile runtime uses an acquiring state, GNSS-aided state, dead reckoning,
 and a 500 ms reacquisition blend. It requires a current good fix after an
@@ -110,12 +110,10 @@ timestamps and implausible jumps are still rejected.
 The Flutter app loads `mobile/assets/models/velocity_cnn.tflite` through
 `tflite_flutter`. Its 10 Hz ticker publishes only real sensor/location data and
 exposes confidence and live diagnostics in Developer Mode, including when no
-valid map coordinate exists. Android's current Flutter location API supplies a
-high-accuracy location observation but does not expose a trustworthy
-satellite/provider provenance field to Dart. Therefore physical results must
-be described as **Android high-accuracy location aided**, not
-satellite-verified GNSS, until a native GNSS-provider/satellite-status bridge
-is added and validated. The Python edge reference in [`edge/python`](../edge/python)
+valid map coordinate exists. Flutter's navigation stream is primary, and a
+native Android GPS-provider channel supplies supplemental provider-backed
+observations with measurement flags. Physical results still require a mounted
+drive before they can be represented as a validated navigation claim. The Python edge reference in [`edge/python`](../edge/python)
 validates input frames, resamples 100/200 Hz input into the shared 10 Hz model
 window, and runs the ONNX model. The current export benchmark achieved about
 2,763 velocity inferences/s while fed a 200 Hz stream; it is not yet a complete

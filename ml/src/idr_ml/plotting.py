@@ -143,3 +143,149 @@ def write_trajectory_svg(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(svg, encoding="utf-8")
     return output
+
+
+def _plot_series(values: np.ndarray, *, maximum_points: int = 1200) -> np.ndarray:
+    """Keep SVG evidence compact while retaining its first and final sample."""
+
+    if len(values) <= maximum_points:
+        return values
+    indices = np.unique(np.linspace(0, len(values) - 1, maximum_points, dtype=int))
+    return values[indices]
+
+
+def _validate_equal_finite_series(**series: np.ndarray) -> int:
+    lengths = {len(values) for values in series.values()}
+    if len(lengths) != 1 or not lengths or next(iter(lengths)) < 2:
+        raise ValueError("plot series must have the same length and at least two samples")
+    for name, values in series.items():
+        if not np.isfinite(values).all():
+            raise ValueError(f"plot series {name!r} contains non-finite values")
+    return next(iter(lengths))
+
+
+def write_speed_tracking_svg(
+    timestamp_s: np.ndarray,
+    ground_truth_speed_mps: np.ndarray,
+    estimated_speed_mps: np.ndarray,
+    output_path: str | Path,
+    *,
+    title: str,
+    subtitle: str,
+) -> Path:
+    """Write a time-series speed comparison for the held-out blackout."""
+
+    timestamp = np.asarray(timestamp_s, dtype=float)
+    ground_truth = np.asarray(ground_truth_speed_mps, dtype=float)
+    estimated = np.asarray(estimated_speed_mps, dtype=float)
+    _validate_equal_finite_series(
+        timestamp_s=timestamp,
+        ground_truth_speed_mps=ground_truth,
+        estimated_speed_mps=estimated,
+    )
+    elapsed = timestamp - timestamp[0]
+    if np.any(np.diff(elapsed) < 0):
+        raise ValueError("speed plot timestamps must be ordered")
+    indices = (
+        np.arange(len(elapsed))
+        if len(elapsed) <= 1200
+        else np.unique(np.linspace(0, len(elapsed) - 1, 1200, dtype=int))
+    )
+    elapsed, ground_truth, estimated = (
+        elapsed[indices],
+        ground_truth[indices],
+        estimated[indices],
+    )
+    left, right, top, bottom = 90.0, 915.0, 125.0, 525.0
+    x_min, x_max = float(elapsed.min()), max(float(elapsed.max()), float(elapsed.min()) + 1.0)
+    y_max = max(float(np.max(ground_truth)), float(np.max(estimated)), 1.0) * 1.12
+
+    def x(values: np.ndarray) -> np.ndarray:
+        return left + (values - x_min) * (right - left) / (x_max - x_min)
+
+    def y(values: np.ndarray) -> np.ndarray:
+        return bottom - values * (bottom - top) / y_max
+
+    grid = "".join(
+        f'<line x1="{left}" y1="{top + index * (bottom - top) / 4:.2f}" '
+        f'x2="{right}" y2="{top + index * (bottom - top) / 4:.2f}" class="grid"/>'
+        for index in range(5)
+    )
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600" viewBox="0 0 1000 600">
+  <rect width="1000" height="600" fill="#070A0F"/>
+  <style>text{{font-family:Arial,sans-serif;fill:#dce7f4}} .title{{font-size:21px;font-weight:bold}} .subtitle,.axis{{font-size:13px;fill:#8ea2b6}} .label{{font-size:13px}} .grid{{stroke:#243545;stroke-width:1}}</style>
+  <text x="48" y="42" class="title">{escape(title)}</text>
+  <text x="48" y="66" class="subtitle">{escape(subtitle)}</text>
+  <rect x="{left}" y="{top}" width="{right - left}" height="{bottom - top}" rx="10" fill="#0f1822" stroke="#33485d"/>
+  {grid}
+  <polyline points="{_polyline(x(elapsed), y(ground_truth))}" fill="none" stroke="#35d07f" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="{_polyline(x(elapsed), y(estimated))}" fill="none" stroke="#2997ff" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <line x1="610" y1="93" x2="635" y2="93" stroke="#35d07f" stroke-width="3"/><text x="643" y="98" class="label">Ground-truth speed</text>
+  <line x1="610" y1="116" x2="635" y2="116" stroke="#2997ff" stroke-width="3"/><text x="643" y="121" class="label">AI-assisted INS speed</text>
+  <text x="{left}" y="{bottom + 30}" class="axis">{x_min:.0f}</text><text x="{right - 22}" y="{bottom + 30}" class="axis">{x_max:.0f}</text>
+  <text x="{left - 48}" y="{bottom}" class="axis">0</text><text x="{left - 58}" y="{top + 5}" class="axis">{y_max:.1f}</text>
+  <text x="{right - 80}" y="{bottom + 30}" class="axis">time (s)</text><text x="{left - 66}" y="{top + 16}" class="axis">speed (m/s)</text>
+</svg>'''
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(svg, encoding="utf-8")
+    return output
+
+
+def write_drift_vs_distance_svg(
+    distance_m: np.ndarray,
+    drift_error_m: np.ndarray,
+    output_path: str | Path,
+    *,
+    title: str,
+    subtitle: str,
+    ceiling_fraction: float = 0.10,
+) -> Path:
+    """Write cumulative endpoint error against travelled-distance evidence."""
+
+    distance = np.asarray(distance_m, dtype=float)
+    error = np.asarray(drift_error_m, dtype=float)
+    _validate_equal_finite_series(distance_m=distance, drift_error_m=error)
+    if ceiling_fraction <= 0 or np.any(distance < 0) or np.any(np.diff(distance) < -1e-6):
+        raise ValueError("drift plot needs non-negative cumulative distance and a positive ceiling")
+    indices = (
+        np.arange(len(distance))
+        if len(distance) <= 1200
+        else np.unique(np.linspace(0, len(distance) - 1, 1200, dtype=int))
+    )
+    distance, error = distance[indices], error[indices]
+    ceiling = distance * ceiling_fraction
+    left, right, top, bottom = 90.0, 915.0, 125.0, 525.0
+    x_max = max(float(distance.max()), 1.0)
+    y_max = max(float(error.max()), float(ceiling.max()), 1.0) * 1.12
+
+    def x(values: np.ndarray) -> np.ndarray:
+        return left + values * (right - left) / x_max
+
+    def y(values: np.ndarray) -> np.ndarray:
+        return bottom - values * (bottom - top) / y_max
+
+    grid = "".join(
+        f'<line x1="{left}" y1="{top + index * (bottom - top) / 4:.2f}" '
+        f'x2="{right}" y2="{top + index * (bottom - top) / 4:.2f}" class="grid"/>'
+        for index in range(5)
+    )
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600" viewBox="0 0 1000 600">
+  <rect width="1000" height="600" fill="#070A0F"/>
+  <style>text{{font-family:Arial,sans-serif;fill:#dce7f4}} .title{{font-size:21px;font-weight:bold}} .subtitle,.axis{{font-size:13px;fill:#8ea2b6}} .label{{font-size:13px}} .grid{{stroke:#243545;stroke-width:1}}</style>
+  <text x="48" y="42" class="title">{escape(title)}</text>
+  <text x="48" y="66" class="subtitle">{escape(subtitle)}</text>
+  <rect x="{left}" y="{top}" width="{right - left}" height="{bottom - top}" rx="10" fill="#0f1822" stroke="#33485d"/>
+  {grid}
+  <polyline points="{_polyline(x(distance), y(error))}" fill="none" stroke="#2997ff" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="{_polyline(x(distance), y(ceiling))}" fill="none" stroke="#f04444" stroke-width="2.2" stroke-dasharray="9 7" stroke-linejoin="round"/>
+  <line x1="610" y1="93" x2="635" y2="93" stroke="#2997ff" stroke-width="3"/><text x="643" y="98" class="label">Cumulative drift error</text>
+  <line x1="610" y1="116" x2="635" y2="116" stroke="#f04444" stroke-width="3" stroke-dasharray="7 5"/><text x="643" y="121" class="label">10% benchmark ceiling</text>
+  <text x="{left}" y="{bottom + 30}" class="axis">0</text><text x="{right - 42}" y="{bottom + 30}" class="axis">{x_max:.0f}</text>
+  <text x="{left - 48}" y="{bottom}" class="axis">0</text><text x="{left - 58}" y="{top + 5}" class="axis">{y_max:.1f}</text>
+  <text x="{right - 150}" y="{bottom + 30}" class="axis">distance travelled (m)</text><text x="{left - 72}" y="{top + 16}" class="axis">error (m)</text>
+</svg>'''
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(svg, encoding="utf-8")
+    return output

@@ -20,10 +20,11 @@ import 'trip_recorder.dart';
 class LiveIdrEngine implements IdrEngine {
   // A stream heartbeat, rather than a single provider's timestamp, defines
   // availability. Android may legitimately repeat a stationary location's
-  // timestamp while the high-accuracy provider is still healthy. Four seconds
-  // avoids false GPS-loss flashes while still declaring a genuine service loss
-  // without delay.
-  static const _gnssFixTimeout = Duration(seconds: 4);
+  // timestamp while the high-accuracy provider is still healthy. The connected
+  // device delivers normal fused updates about every five seconds, so retain
+  // the earlier eight-second watchdog rather than flashing GPS LOST between
+  // healthy callbacks.
+  static const _gnssFixTimeout = Duration(seconds: 8);
   static const _reacquisitionBlend = Duration(milliseconds: 500);
   static const _maximumNavigationAccuracyM = 100.0;
   static const _maximumAidingAccuracyM = 25.0;
@@ -31,6 +32,10 @@ class LiveIdrEngine implements IdrEngine {
   static const _modelInitializationTimeout = Duration(seconds: 8);
   static const _maximumBootstrapFixAge = Duration(minutes: 2);
   static const _maximumNavigationFixAge = Duration(seconds: 15);
+  // Android's fused and raw-GPS callbacks can be delivered in a different
+  // order from their measurement timestamps. Permit a bounded reorder for a
+  // spatially plausible heartbeat, but never use it to rewind the pose.
+  static const _providerTimestampReorderTolerance = Duration(seconds: 8);
 
   final StreamController<TelemetrySnapshot> _telemetry =
       StreamController<TelemetrySnapshot>.broadcast();
@@ -55,7 +60,7 @@ class LiveIdrEngine implements IdrEngine {
   Position? _actualPosition;
   Position? _lastGoodGnss;
   DateTime? _lastAcceptedGnssTimestamp;
-  DateTime? _lastAcceptedGnssReceiptAt;
+  DateTime? _lastNavigationGnssReceiptAt;
   DateTime? _lastTick;
   DateTime? _lossStarted;
   DateTime? _reacquireStarted;
@@ -333,30 +338,38 @@ class LiveIdrEngine implements IdrEngine {
     // current 30–80 m Android fix still means location is available; it must
     // not turn the UI into GPS LOST. It is simply withheld from sensitive
     // calibration/fusion updates until it improves.
-    _gnssDegraded = !_isFusionQualityGnssFix(position, now);
-    _locationStatus = _gnssDegraded
-        ? 'Location accepted with degraded accuracy (${position.accuracy.toStringAsFixed(1)} m)'
-        : 'Fusion-quality location accepted';
-    _lastGoodGnss = position;
-    _lastAcceptedGnssTimestamp = position.timestamp;
-    _lastAcceptedGnssReceiptAt = now;
-    final courseReliable = _hasUsableCourse(position);
-    if (courseReliable) {
-      _velocityEstimator?.setGnssReference(
-        speedMps: position.speed,
-        headingDeg: position.heading,
-        accuracyM: position.accuracy,
-        timestamp: position.timestamp,
-        headingReliable: true,
-      );
-      _headingDegrees = position.heading;
+    // A raw GPS callback may arrive shortly after a newer fused callback. It
+    // is a valid provider heartbeat when it passed the bounded plausibility
+    // gate above, but must not roll the filter, map marker, speed, or heading
+    // backward to that older epoch.
+    final isNewestEpoch = _lastAcceptedGnssTimestamp == null ||
+        !position.timestamp.isBefore(_lastAcceptedGnssTimestamp!);
+    if (isNewestEpoch) {
+      _gnssDegraded = !_isFusionQualityGnssFix(position, now);
+      _locationStatus = _gnssDegraded
+          ? 'Location accepted with degraded accuracy (${position.accuracy.toStringAsFixed(1)} m)'
+          : 'Fusion-quality location accepted';
+      _lastGoodGnss = position;
+      _lastAcceptedGnssTimestamp = position.timestamp;
+      final courseReliable = _hasUsableCourse(position);
+      if (courseReliable) {
+        _velocityEstimator?.setGnssReference(
+          speedMps: position.speed,
+          headingDeg: position.heading,
+          accuracyM: position.accuracy,
+          timestamp: position.timestamp,
+          headingReliable: true,
+        );
+        _headingDegrees = position.heading;
+      }
+      if (_hasMeasuredSpeed(position)) {
+        _insSpeedFilter.anchorGnssSpeed(position.speed);
+      }
+      final fix = _LocalPosition(position.latitude, position.longitude);
+      _lastAccurate = fix;
+      _predicted ??= fix;
     }
-    if (_hasMeasuredSpeed(position)) {
-      _insSpeedFilter.anchorGnssSpeed(position.speed);
-    }
-    final fix = _LocalPosition(position.latitude, position.longitude);
-    _lastAccurate = fix;
-    _predicted ??= fix;
+    _lastNavigationGnssReceiptAt = now;
     _tick();
   }
 
@@ -590,11 +603,10 @@ class LiveIdrEngine implements IdrEngine {
       return NavigationMode.acquiring;
     }
     if (!_gnssEnabled || !freshFix) {
-      // Capture this boundary once. Replacing it every 100 ms would reject a
-      // legitimate provider fix whose timestamp trails its delivery time.
-      if (_gnssEnabled && _lossStarted == null) {
-        _gnssRecoveryGate.requireFixAfter(now);
-      }
+      // Only an explicit simulator transition requires a newer source
+      // timestamp before recovery. A natural provider timeout may be followed
+      // by a valid callback whose Android timestamp trails its delivery by a
+      // few seconds; gating that callback would prolong a false GPS-LOST UI.
       _lossStarted ??= now;
       _reacquireStarted = null;
       return NavigationMode.deadReckoning;
@@ -656,12 +668,13 @@ class LiveIdrEngine implements IdrEngine {
   bool _isFreshGoodFix(DateTime now) {
     if (_gnssRecoveryGate.awaitingFreshFix) return false;
     final fix = _lastGoodGnss;
-    final receipt = _lastAcceptedGnssReceiptAt;
+    final receipt = _lastNavigationGnssReceiptAt;
     if (fix == null || receipt == null) return false;
     final fixAge = now.difference(fix.timestamp);
     final heartbeatAge = now.difference(receipt);
     return fixAge >= Duration.zero &&
-        fixAge <= _maximumNavigationFixAge &&
+        fixAge <=
+            _maximumNavigationFixAge + _providerTimestampReorderTolerance &&
         heartbeatAge >= Duration.zero &&
         heartbeatAge <= _gnssFixTimeout;
   }
@@ -698,7 +711,11 @@ class LiveIdrEngine implements IdrEngine {
     // timestamp as a heartbeat when it agrees spatially; only a time reversal
     // is stale. This restores the normal stationary-location behaviour from
     // the original app without accepting a teleport.
-    if (candidate.timestamp.isBefore(previousTimestamp)) return false;
+    if (candidate.timestamp.isBefore(previousTimestamp) &&
+        previousTimestamp.difference(candidate.timestamp) >
+            _providerTimestampReorderTolerance) {
+      return false;
+    }
     final elapsedS = math.max(
       0.0,
       candidate.timestamp.difference(previousTimestamp).inMilliseconds / 1000,

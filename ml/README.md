@@ -40,13 +40,22 @@ Stage 10 needs TensorFlow and ONNX in addition to `ml/requirements.txt` when TFL
 python -m pip install tensorflow onnx
 ```
 
-## Legacy Driver B position replay
+## Deployable-model held-out position replay
 
-The tracked Stage 12 position plot uses the earlier static-calibration model.
-The current artifact uses mobile-equivalent GNSS-kinematic yaw and intentionally
-rejects that replay rather than run with mismatched preprocessing. See
-[`../docs/model-training-v2.md`](../docs/model-training-v2.md) for the current
-artifact and use a fixed-mount field drive for its position validation.
+The tracked Stage 12 deliverable evaluates the current runtime-equivalent model
+on IO-VNBD Driver A S3c. Download the public source pair, then run:
+
+```powershell
+py -3.13 ml/scripts/fetch_iovnbd_subset.py --recording driver-a-s3c
+$env:PYTHONPATH = "ml/src;edge/python/src"
+py -3.13 ml/scripts/stage12_evaluate.py
+```
+
+It writes position, speed-tracking, and drift-versus-distance SVGs together
+with CSV/JSON metrics under
+[`../docs/benchmarks/iovnbd-driver-a-s3c-stage12/`](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/).
+The held-out replay passes the 10% offline drift threshold at 5.08%; a
+fixed-mount field drive is still required for road validation.
 
 ## Field-drive evaluation
 

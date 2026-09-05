@@ -11,8 +11,9 @@ ready for unsupervised road use.
 ## Reproduction
 
 With the public IO-VNBD `M (Driver B)` phone/vehicle CSV pair in
-`ml/data/raw/iovnbd_m/`, check out a pre-v2 repository revision and run the
-complete provenance-preserving sequence:
+`ml/data/raw/iovnbd_m/`, check out the historical repository revision that
+produced these files and run the complete provenance-preserving sequence from
+that revision:
 
 ```powershell
 $env:PYTHONPATH = 'ml/src;edge/python/src'
@@ -22,13 +23,15 @@ py -3.13 ml/scripts/stage10_export.py
 py -3.13 ml/scripts/stage12_evaluate.py
 ```
 
-At the current revision, `stage12_evaluate.py` stops before inference for the
-v2 artifact because Driver B fails its kinematic-mount quality gate. The
-pipeline otherwise rejects a stale/mixed export, a mismatched clock offset, a
-calibration without an exclusive end boundary, or a calibration extending into
-the held-out blackout. It also refuses windows that interpolate across a source
-gap and purges 1.8 seconds of overlapping sliding windows around each training
-split boundary.
+At the current revision, `stage12_evaluate.py` instead evaluates the
+deployable Driver A S3c model and writes to
+[`../iovnbd-driver-a-s3c-stage12/`](../iovnbd-driver-a-s3c-stage12/). This
+archive is retained only for historical comparison. Its original pipeline
+rejects a stale/mixed export, a mismatched clock offset, a calibration without
+an exclusive end boundary, or a calibration extending into the held-out
+blackout. It also refuses windows that interpolate across a source gap and
+purges 1.8 seconds of overlapping sliding windows around each training split
+boundary.
 
 ## Current held-out replay
 

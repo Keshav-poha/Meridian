@@ -46,6 +46,21 @@ class DeadReckoningResult:
 
 
 @dataclass(frozen=True)
+class RuntimeGnssAnchoredReplay:
+    """Offline output of the speed/state logic used by the mobile runtime.
+
+    ``model_speed_mps`` is the bounded CNN prior for diagnostics. The position
+    integration uses ``dead_reckoning.speed_mps`` instead: it starts from the
+    GNSS-aided speed at loss and accepts only a rate-limited CNN *change* in
+    speed, matching the deployed safety contract.
+    """
+
+    dead_reckoning: DeadReckoningResult
+    model_speed_mps: list[float]
+    forward_acceleration_mps2: list[float]
+
+
+@dataclass(frozen=True)
 class NavigationInitialState:
     """State available at the instant GNSS aiding is masked or lost."""
 
@@ -239,6 +254,134 @@ def learned_velocity_nhc_dead_reckoning(
     return DeadReckoningResult(
         timestamp_s=timestamp.tolist(), east_m=east.tolist(), north_m=north.tolist(),
         speed_mps=speed.tolist(), heading_rad=heading.tolist(), gyro_z_bias_rps=gyro_bias,
+    )
+
+
+def runtime_gnss_anchored_dead_reckoning(
+    feature_context: pd.DataFrame,
+    *,
+    blackout_start_index: int,
+    model: Any,
+    normalization: dict[str, np.ndarray],
+    initial_state: NavigationInitialState,
+    use_model_residual: bool = True,
+) -> RuntimeGnssAnchoredReplay:
+    """Replay the deployed GNSS-anchored INS speed state over a blackout.
+
+    ``feature_context`` must contain a contiguous pre-outage sensor history
+    followed by the masked-GNSS samples. It deliberately accepts only the
+    vehicle-frame IMU channels and timestamps; callers must keep position,
+    speed, and heading labels out of this function. The last GNSS-aided state
+    is supplied explicitly through ``initial_state``.
+
+    The state equations mirror ``mobile/lib/services/ins_speed_filter.dart``:
+    forward acceleration is clipped to ±8 m/s², CNN changes are clipped to
+    ±4 m/s² and applied at 0.12 gain, and speed remains within 0–45 m/s.
+    """
+
+    from .preprocessing import VELOCITY_FEATURE_COLUMNS
+    from .velocity_model import predict_velocity_cnn
+
+    required = {
+        "timestamp_s",
+        "linear_accel_forward_mps2",
+        "gyro_down_rps",
+        *VELOCITY_FEATURE_COLUMNS,
+    }
+    missing = required.difference(feature_context.columns)
+    if missing:
+        raise ValueError(f"runtime replay frame missing: {sorted(missing)}")
+    if not 0 < blackout_start_index < len(feature_context):
+        raise ValueError("blackout_start_index must select a non-empty tail after sensor history")
+
+    timestamp = feature_context.timestamp_s.to_numpy(dtype=float)
+    dt = np.diff(timestamp, prepend=timestamp[0])
+    positive_dt = dt[dt > 0]
+    if positive_dt.size == 0:
+        raise ValueError("runtime replay timestamps must increase")
+    nominal_dt = float(np.median(positive_dt))
+    dt[0] = nominal_dt
+    if np.any(dt <= 0) or np.any(dt > 0.25 + 1e-9):
+        raise ValueError("runtime replay requires contiguous updates at 4 Hz or faster")
+
+    rate_hz = float(np.asarray(normalization["sample_rate_hz"]))
+    window_samples = round(2.0 * rate_hz)
+    if window_samples < 2:
+        raise ValueError("runtime replay model window must contain at least two samples")
+
+    values = feature_context[VELOCITY_FEATURE_COLUMNS].to_numpy(dtype=np.float32)
+    blackout_count = len(feature_context) - blackout_start_index
+    model_speed = np.full(blackout_count, np.nan, dtype=float)
+    valid_window_indices: list[int] = []
+    windows: list[np.ndarray] = []
+    for index in range(blackout_start_index, len(feature_context)):
+        if index < window_samples - 1:
+            continue
+        window = values[index - window_samples + 1 : index + 1]
+        if np.isfinite(window).all():
+            valid_window_indices.append(index)
+            windows.append(window)
+    if windows:
+        predicted = predict_velocity_cnn(model, np.stack(windows), normalization)
+        for index, speed_value in zip(valid_window_indices, predicted, strict=True):
+            model_speed[index - blackout_start_index] = float(speed_value)
+
+    blackout_timestamp = timestamp[blackout_start_index:]
+    blackout_dt = dt[blackout_start_index:].copy()
+    # The first blackout sample represents the GNSS-aided boundary. Its
+    # previous integration interval is irrelevant to the denied-GNSS state.
+    blackout_dt[0] = nominal_dt
+    forward_acceleration = feature_context.linear_accel_forward_mps2.to_numpy(dtype=float)[
+        blackout_start_index:
+    ]
+    yaw_rate = feature_context.gyro_down_rps.to_numpy(dtype=float)[blackout_start_index:]
+
+    speed = np.empty(blackout_count, dtype=float)
+    heading = np.empty(blackout_count, dtype=float)
+    east = np.zeros(blackout_count, dtype=float)
+    north = np.zeros(blackout_count, dtype=float)
+    speed[0] = float(np.clip(initial_state.speed_mps, 0.0, 45.0))
+    heading[0] = float(wrap_angle(initial_state.heading_rad))
+    previous_model_speed: float | None = None
+
+    for index in range(1, blackout_count):
+        interval_s = float(blackout_dt[index])
+        acceleration = float(np.clip(forward_acceleration[index], -8.0, 8.0))
+        propagated = float(np.clip(speed[index - 1] + acceleration * interval_s, 0.0, 45.0))
+        candidate_model_speed = float(model_speed[index])
+        model_is_usable = (
+            use_model_residual
+            and math.isfinite(candidate_model_speed)
+            and 0.0 <= candidate_model_speed <= 45.0
+        )
+        if model_is_usable:
+            if previous_model_speed is not None:
+                inertial_delta = acceleration * interval_s
+                model_delta = candidate_model_speed - previous_model_speed
+                residual = float(np.clip(model_delta - inertial_delta, -4.0 * interval_s, 4.0 * interval_s))
+                propagated = float(np.clip(propagated + 0.12 * residual, 0.0, 45.0))
+            previous_model_speed = candidate_model_speed
+        else:
+            previous_model_speed = None
+        speed[index] = propagated
+        heading[index] = float(
+            wrap_angle(heading[index - 1] + (yaw_rate[index] - initial_state.gyro_z_bias_rps) * interval_s)
+        )
+        distance = 0.5 * (speed[index - 1] + speed[index]) * interval_s
+        east[index] = east[index - 1] + distance * math.sin(heading[index])
+        north[index] = north[index - 1] + distance * math.cos(heading[index])
+
+    return RuntimeGnssAnchoredReplay(
+        dead_reckoning=DeadReckoningResult(
+            timestamp_s=blackout_timestamp.tolist(),
+            east_m=east.tolist(),
+            north_m=north.tolist(),
+            speed_mps=speed.tolist(),
+            heading_rad=heading.tolist(),
+            gyro_z_bias_rps=initial_state.gyro_z_bias_rps,
+        ),
+        model_speed_mps=model_speed.tolist(),
+        forward_acceleration_mps2=forward_acceleration.tolist(),
     )
 
 

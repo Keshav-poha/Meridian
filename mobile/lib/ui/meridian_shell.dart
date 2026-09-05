@@ -361,6 +361,29 @@ class _NavigationMap extends StatelessWidget {
               right: 12,
               bottom: 14,
               child: _StatsBar(snapshot: snapshot)),
+          const Positioned(
+            right: 14,
+            bottom: 92,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color(0xB8151A20),
+                  borderRadius: BorderRadius.all(Radius.circular(6)),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  child: Text(
+                    '© OpenStreetMap contributors',
+                    style: TextStyle(
+                      color: Color(0xFFE7EDF5),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (snapshot?.mode == NavigationMode.deadReckoning)
             Positioned(
                 left: 12,

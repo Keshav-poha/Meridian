@@ -58,18 +58,10 @@ class MainActivity : FlutterActivity() {
                         0f,
                         listener,
                     )
-                    // Some Android builds expose their current position only
-                    // through the platform fused provider while a fresh raw
-                    // GPS epoch is pending. It is still required to carry
-                    // Android's measured accuracy; Dart never invents one.
-                    if (manager.getProvider(LocationManager.FUSED_PROVIDER) != null) {
-                        manager.requestLocationUpdates(
-                            LocationManager.FUSED_PROVIDER,
-                            1000L,
-                            0f,
-                            listener,
-                        )
-                    }
+                    // Flutter's best-for-navigation stream already owns the
+                    // fused provider. Keep this channel GPS-only so duplicate
+                    // Android fused callbacks cannot arrive out of timestamp
+                    // order and incorrectly age the aiding heartbeat.
                     emitRecentCachedLocations(manager, events)
                 } catch (error: SecurityException) {
                     stopGpsUpdates()

@@ -29,21 +29,30 @@ MERIDIAN is a reproducible IMU/GNSS replay and deployment pipeline. It synchroni
 - Developer Mode shows real sensor axes, raw physical GNSS, accepted/predicted positions, drift/error fields, confidence, and a trip recorder for field validation.
 - The replay pipeline guards against timestamp alignment mistakes, source gaps, calibration leakage, mixed model artifacts, and overlapping train/test windows.
 - Negative-motion collection and preparation tooling exists for parked/idle, bump, handheld-shake, and mount-shift captures. Those examples have **not** yet been collected across devices or used to retrain the model.
-- The current runtime-equivalent model is trained from quality-audited IO-VNBD Driver A recordings plus one separate STRIDE phone-domain session. The old Driver B replay is preserved as a legacy benchmark only because that record fails the v2 kinematic-mount quality gate.
+- The current runtime-equivalent model is trained from quality-audited IO-VNBD Driver A recordings plus one separate STRIDE phone-domain session. The held-out Driver A S3c benchmark below evaluates that same deployable ONNX model.
 
-## Legacy benchmark results
+## Held-out benchmark results
 
-The tracked held-out replay masks GNSS for 60 seconds in the IO-VNBD Driver B subset. It uses a corrected −3.9 s phone-to-vehicle clock fit, pre-blackout-only calibration, and no ground-truth columns during blackout propagation. It belongs to the earlier static-calibration artifact and must not be used as an accuracy claim for the current runtime-equivalent model; the evaluator now refuses to mix those feature spaces.
+The tracked Stage 12 replay masks GNSS for 59.9 seconds in the recording-disjoint IO-VNBD Driver A S3c evaluation drive. It uses the current `runtime_equivalent_kinematic_vehicle_frame_v2` feature contract, pre-outage-only mount calibration (first 300 seconds), the last GNSS-aided speed/course at loss, and no ground-truth labels in the blackout model input or inertial propagation.
 
 | Method | Distance | Endpoint error | Drift | Update rate |
 | --- | ---: | ---: | ---: | ---: |
-| Classical NHC baseline | 689.81 m | 440.53 m | 63.86% | 10 Hz |
-| Learned-speed NHC | 689.81 m | 54.71 m | 7.93% | 10 Hz |
-| Guarded masked-GNSS replay | 689.81 m | 54.71 m | **7.93%** | 10 Hz |
+| Forward-acceleration INS | 1,867.62 m | 96.34 m | 5.16% | 10 Hz |
+| AI-assisted GNSS-anchored INS | 1,867.62 m | 94.88 m | **5.08%** | 10 Hz |
 
-The `<10%` target passed for that legacy offline segment. The required position plot, CSV, JSON metrics, and trajectory are in [the benchmark deliverable](docs/benchmarks/iovnbd-driver-b-stage12/README.md). See [the v2 training record](docs/model-training-v2.md) for the deployed artifact's data, bounds, and candid recording-disjoint speed result. A fixed-mount real-car blackout, mobile update-rate measurement, and physical transition-latency measurement are still required; no offline result should be treated as a road-use claim.
+The 5.08% result is strictly below the SIH `<10%` offline drift threshold. Its [position trajectory](docs/benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg), [speed tracking plot](docs/benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg), [drift-versus-distance plot](docs/benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg), [metrics](docs/benchmarks/iovnbd-driver-a-s3c-stage12/metrics.csv), and [trajectory](docs/benchmarks/iovnbd-driver-a-s3c-stage12/trajectory.csv) are tracked together with reproducibility instructions in [the benchmark deliverable](docs/benchmarks/README.md). See [the v2 training record](docs/model-training-v2.md) for the deployed artifact's data, bounds, and recording-disjoint raw-prior result. A fixed-mount real-car blackout, mobile update-rate measurement, and physical transition-latency measurement are still required; no offline result should be treated as a road-use claim.
+
+![Ground truth and dead-reckoning trajectory](docs/benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg)
+
+![Ground-truth and AI-assisted speed](docs/benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg)
+
+![Cumulative drift against the SIH threshold](docs/benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg)
 
 See [detailed test results](docs/test-results.md), [the technical approach](docs/technical-approach.md), and [the compliance matrix](docs/compliance-matrix.md).
+
+## Interface renders
+
+Clean presentation renders for active navigation, GNSS blackout handling, and Developer Mode are available in [`docs/screenshots/`](docs/screenshots/README.md). They illustrate the interface only; the measured navigation evidence is in [the benchmark deliverable](docs/benchmarks/README.md).
 
 ## Architecture
 
@@ -74,7 +83,7 @@ flowchart LR
 
 ## Datasets and map data
 
-- [IO-VNBD](https://github.com/onyekpeu/IO-VNBD) — public phone/vehicle records used for timestamp synchronization, mount calibration, velocity training, and the tracked Driver B replay. Raw data is downloaded locally and is not committed.
+- [IO-VNBD](https://github.com/onyekpeu/IO-VNBD) — public phone/vehicle records used for timestamp synchronization, mount calibration, velocity training, and the tracked Driver A S3c replay. Raw data is downloaded locally and is not committed.
 - [STRIDE](https://doi.org/10.6084/m9.figshare.25460755.v4) — CC BY 4.0 smartphone road-safety recordings used as secondary training-domain supervision for the v2 velocity model. Raw data is downloaded locally and is not committed.
 - [OpenStreetMap](https://www.openstreetmap.org/copyright) — road-map source used by the offline matcher and mobile map tiles. The app must retain visible OpenStreetMap attribution in public/demo builds.
 
@@ -90,6 +99,7 @@ MERIDIAN/
 ├── shared/              Feature contract, telemetry/model schemas, portable models
 ├── docs/
 │   ├── benchmarks/      Tracked IO-VNBD position plot, metrics, trajectory
+│   ├── design/          UI design reference material
 │   ├── validation/      Real-world drive protocol
 │   ├── safety/          Map-matching safety policy
 │   └── screenshots/     Reviewed, non-sensitive demo captures only
@@ -122,13 +132,15 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r ml/requirements.txt
 $env:PYTHONPATH = "$PWD\ml\src;$PWD\edge\python\src"
-python ml/scripts/fetch_iovnbd_subset.py
+python ml/scripts/fetch_iovnbd_subset.py --recording driver-a-s3c
 python ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
 python ml/scripts/stage5_train_robust_velocity.py --epochs 20
 python ml/scripts/stage10_export.py --artifact-dir ml/artifacts/velocity_cnn_robust --training-metrics ml/reports/stage5_robust/metrics.json
+$env:PYTHONPATH = "ml/src;edge/python/src"
+py -3.13 ml/scripts/stage12_evaluate.py
 ```
 
-The legacy Stage 12 Driver B evaluator is intentionally incompatible with the current runtime-equivalent model to prevent a silent preprocessing mismatch. Use the v2 training record and a fixed-mount field drive for current-artifact validation.
+Stage 12 evaluates the current deployable ONNX model and writes all submission artifacts to `docs/benchmarks/iovnbd-driver-a-s3c-stage12/`. See [the benchmark instructions](docs/benchmarks/README.md) for the exact data location and acceptance criteria.
 
 ### Edge reference runtime
 
