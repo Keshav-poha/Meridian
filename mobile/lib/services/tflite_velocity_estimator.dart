@@ -130,14 +130,14 @@ class TfliteVelocityEstimator {
     final latestFrame = _latestVehicleFrame!;
     final latest = _samples.last.timestamp;
     final now = DateTime.now();
-    final sensorsFresh = now.difference(latest).abs() <=
-            const Duration(milliseconds: 250) &&
-        _gyroscopeTimestamp != null &&
-        _magnetometerTimestamp != null &&
-        now.difference(_gyroscopeTimestamp!).abs() <=
-            const Duration(milliseconds: 250) &&
-        now.difference(_magnetometerTimestamp!).abs() <=
-            const Duration(milliseconds: 750);
+    final sensorsFresh =
+        now.difference(latest).abs() <= const Duration(milliseconds: 250) &&
+            _gyroscopeTimestamp != null &&
+            _magnetometerTimestamp != null &&
+            now.difference(_gyroscopeTimestamp!).abs() <=
+                const Duration(milliseconds: 250) &&
+            now.difference(_magnetometerTimestamp!).abs() <=
+                const Duration(milliseconds: 750);
     return VelocityEstimate(
       speedMps: output[0][0] * _targetStd + _targetMean,
       quality: VelocityModelQuality.fromNormalizedWindow(input[0]),
@@ -217,6 +217,8 @@ class _ImuReading {
 }
 
 class VelocityEstimate {
+  static const maximumPlausibleVehicleSpeedMps = 45.0;
+
   const VelocityEstimate({
     required this.speedMps,
     required this.quality,
@@ -237,14 +239,18 @@ class VelocityEstimate {
   final bool sensorsFresh;
   final double vehicleYawRateRps;
 
+  bool get hasPlausibleSpeed =>
+      speedMps.isFinite &&
+      speedMps >= 0 &&
+      speedMps <= maximumPlausibleVehicleSpeedMps;
+
   double get confidence =>
       quality.confidence *
       (mountCalibrated ? mountConfidence : 0) *
       (sensorsFresh && !motionAnomaly && !mountDegraded ? 1 : 0);
 
   bool get isTrusted =>
-      speedMps.isFinite &&
-      speedMps >= 0 &&
+      hasPlausibleSpeed &&
       quality.isInDistribution &&
       mountCalibrated &&
       sensorsFresh &&

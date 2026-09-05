@@ -7,6 +7,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import '../domain/telemetry_snapshot.dart';
 import 'idr_engine.dart';
 import 'motion_gate.dart';
+import 'native_gnss_stream.dart';
 import 'tflite_velocity_estimator.dart';
 import 'trip_recorder.dart';
 
@@ -34,6 +35,7 @@ class LiveIdrEngine implements IdrEngine {
   final VehicleMotionLatch _vehicleMotionLatch = VehicleMotionLatch();
   final GnssRecoveryGate _gnssRecoveryGate = GnssRecoveryGate();
   final TripRecorder _tripRecorder = TripRecorder();
+  final NativeGnssStream _nativeGnssStream = NativeGnssStream();
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
@@ -196,16 +198,7 @@ class LiveIdrEngine implements IdrEngine {
       );
       return;
     }
-    final settings = AndroidSettings(
-      // Geolocator's accuracy setting is not satellite provenance. `high`
-      // asks Android for a high-accuracy observation while still allowing the
-      // display-only bootstrap path to recover from a cold GPS start.
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
-      intervalDuration: Duration(seconds: 1),
-    );
-    final subscription =
-        Geolocator.getPositionStream(locationSettings: settings).listen(
+    final subscription = _nativeGnssStream.positions.listen(
       (position) {
         if (_isActive(lifecycleGeneration)) _onPosition(position);
       },
@@ -222,7 +215,9 @@ class LiveIdrEngine implements IdrEngine {
       return;
     }
     _positionSubscription = subscription;
-    _setLocationStatus('Location stream active — waiting for a current fix');
+    _setLocationStatus(
+      'Android location provider active — waiting for a measured location fix',
+    );
     // Stream delivery can legitimately take a while on a cold GPS start.
     // Use a recent physical cache and an independent one-shot request to make
     // the map useful immediately, but keep both display-only until they pass
@@ -291,7 +286,7 @@ class LiveIdrEngine implements IdrEngine {
       _tick();
       return;
     }
-    if (!_hasInitialQualityFixPair(position)) {
+    if (!_hasInitialQualityFixPair(position, now)) {
       _setLocationStatus(
         'First fusion-quality location received — waiting for a second fresh fix',
       );
@@ -356,11 +351,18 @@ class LiveIdrEngine implements IdrEngine {
     return 'Location jump rejected — waiting for a consistent quality fix';
   }
 
-  bool _hasInitialQualityFixPair(Position position) {
-    // Reacquisition already has a trusted DR origin and retains its one-fix
-    // recovery latency. Startup needs two strictly newer stream observations
-    // so a lone current-looking provider result cannot initialize navigation.
+  bool _hasInitialQualityFixPair(Position position, DateTime now) {
+    // A native Android location callback preserves the platform's timestamp
+    // and measured accuracy.  A current one is safe to use as the initial
+    // origin even while stationary, where Android is allowed to repeat the
+    // same timestamp instead of emitting a needless second fix.  Older cached
+    // observations still need a second, strictly newer stream event.
     if (_lastAccurate != null || _predicted != null) return true;
+    final age = now.difference(position.timestamp);
+    if (age >= Duration.zero && age <= _gnssFixTimeout) {
+      _firstInitialQualityFixTimestamp = null;
+      return true;
+    }
     final first = _firstInitialQualityFixTimestamp;
     if (first == null || !position.timestamp.isAfter(first)) {
       _firstInitialQualityFixTimestamp = position.timestamp;
@@ -415,9 +417,11 @@ class LiveIdrEngine implements IdrEngine {
         _hasUsableSpeed(_lastGoodGnss!);
     final inferred = _velocityEstimator?.estimate();
     if (inferred != null) {
-      // This diagnostic is intentionally separate from the navigation value:
-      // no clipping turns an unsafe model output into a trusted measurement.
-      _modelSpeedMps = inferred.speedMps;
+      // Do not turn an impossible neural-network extrapolation into either a
+      // navigation measurement or a plausible-looking diagnostic value.
+      // `NaN` is serialized as null in trip logs and rendered as rejected.
+      _modelSpeedMps =
+          inferred.hasPlausibleSpeed ? inferred.speedMps : double.nan;
       _velocityModelTrusted = inferred.isTrusted;
       _mountCalibrated = inferred.mountCalibrated;
       _mountDegraded = inferred.mountDegraded;

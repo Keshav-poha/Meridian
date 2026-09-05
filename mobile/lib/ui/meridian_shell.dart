@@ -688,6 +688,10 @@ class _RawSensorData extends StatelessWidget {
     final actualLongitude = snapshot?.actualLongitudeDeg;
     final hasActualCoordinate =
         actualLatitude?.isFinite == true && actualLongitude?.isFinite == true;
+    final modelSpeed = snapshot?.modelSpeedMps;
+    final modelSpeedText = modelSpeed?.isFinite == true
+        ? '${modelSpeed!.toStringAsFixed(2)} m/s'
+        : 'rejected outside 0–45 m/s';
     return _PanelCard(
       title: 'RAW SENSOR DATA',
       child: Column(children: [
@@ -717,7 +721,7 @@ class _RawSensorData extends StatelessWidget {
                 : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
                     '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
                     '${!snapshot!.mountCalibrated ? 'Mount calibration: awaiting fixed mount + GNSS course' : snapshot!.velocityModelTrusted ? 'Velocity CNN input: calibrated and in distribution' : 'Velocity CNN input: rejected — device/model mismatch'}\n'
-                    'Velocity CNN diagnostic: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
+                    'Velocity CNN: $modelSpeedText  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
           ]),
         ),
         const SizedBox(height: 14),
