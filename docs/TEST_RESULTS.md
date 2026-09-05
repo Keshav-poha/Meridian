@@ -1,36 +1,44 @@
 # Test results
 
-This page records the most recent local verification of the committed
-repository. The GitHub Actions workflow in `.github/workflows/verify.yml`
-repeats the unit and build checks on every push and pull request.
+This page records the latest local verification of the committed repository.
+Offline metrics are clearly separated from the physical-device smoke check.
 
-## 4 September 2026
+## 5 September 2026 — corrected pipeline and runtime pass
 
 | Target | Command | Result |
 | --- | --- | --- |
-| Shared ML pipeline | `py -3.13 -m unittest discover -s ml/tests -v` | 6 passed |
-| Edge preprocessing | `py -3.13 -m unittest discover -s edge/python/tests -v` | 1 passed in 0.027 s |
-| Flutter static analysis | `flutter analyze` | No issues (10.6 s) |
-| Flutter test suite | `flutter test` | 6 passed |
-| Android package | `flutter build apk --debug` | Built successfully; 173,619,646-byte APK |
-| IO-VNBD held-out replay | `py -3.13 ml/scripts/stage12_evaluate.py` | 7.90% endpoint drift (53.50 m / 676.92 m) at 10 Hz; passes the <10% requirement |
+| Shared ML pipeline | `py -3.13 -m unittest discover -s ml/tests -v` | 17 passed, including clock alignment, missing-window rejection, split purge, map safety, weak-residual fallback, sensor-only blackout propagation, and live-drive evaluator coverage. |
+| Edge preprocessing/runtime | `py -3.13 -m unittest discover -s edge/python/tests -v` | 6 passed: input validation, timestamp replay, 200 Hz resampling, and gap reset. |
+| Flutter static analysis | `flutter analyze` | No issues. |
+| Flutter test suite | `flutter test` | 10 passed: mount evidence, shock/motion gates, recovery freshness gate, controller, and recorder behavior. |
+| Android package | `flutter build apk --debug` | Built successfully; 213,712,201-byte APK. |
+| Android install/startup | `flutter install --debug -d 001966572000417` and `flutter run --debug --no-resident -d 001966572000417` | Installed and launched on the connected Android 16 phone; no Flutter/TFLite exception in the inspected startup log. |
+| Portable model export | `py -3.13 ml/scripts/stage10_export.py` | Hash-bound 5,387-byte ONNX and 10,276-byte TFLite model; ONNX/TFLite parity ≤7.76e−8; hardened Python reference produced 3,248 inferences/s while fed a 200 Hz stream. |
+| Offline map safety | `py -3.13 ml/scripts/stage7_map_match.py` | 282/600 points accepted under distance/ambiguity/heading rules; RMSE 31.73→31.64 m. Endpoint stayed raw because the final snap was rejected. |
+| IO-VNBD held-out replay | `py -3.13 ml/scripts/stage12_evaluate.py` | **7.93%** endpoint drift (54.71 m / 689.81 m) at 10 Hz; passes the `<10%` offline requirement. |
 
-The position plot, sample-level trajectory, and machine-readable metric report
-are in [Stage 12 evaluation](evaluation/stage12/README.md).
+The Stage 12 metric uses a corrected `−3.9 s` phone-to-vehicle clock fit,
+time-bounded pre-blackout calibration, gap-safe windows, a 1.8-second split
+purge, and the tracked portable ONNX artifact. Its adaptive residual was
+withheld because the pre-outage speed/yaw correlations were too weak; it is a
+safe learned-NHC fallback, not a proof that a live UKF improves this segment.
+See [Stage 12 evaluation](evaluation/stage12/README.md).
 
-## 5 September 2026 — live Android smoke test
+## Physical UI/device check
 
-| Check | Result |
-| --- | --- |
-| Device and permissions | Android 16 physical device; live accelerometer, gyroscope, magnetometer, and fused GNSS data reached Developer Mode. |
-| GNSS request | High-accuracy request accepted at 1 second. The Android fused provider batched stationary callbacks at about 5 seconds, so the runtime uses an 8-second freshness watchdog to avoid false loss banners. |
-| Raw-axis model diagnosis | The original artifact emitted a raw 7.46 m/s on a stationary phone because its raw magnetic field was far outside the training distribution. It has been replaced. |
-| Orientation/gravity correction | The shipped model now consumes complementary-filter gravity-compensated acceleration, a dynamic GNSS-course mount transform, and normalized vehicle-frame magnetic direction. It stays untrusted until the phone is fixed in the vehicle and the course calibration completes. |
-| Build and focused regression tests | `flutter analyze`: no issues; `flutter test`: 6 passed; the updated debug APK built and installed successfully. Physical fixed-mount calibration remains pending. |
+- Three-button Android navigation was visually verified on the connected
+  phone: all MERIDIAN bottom tabs sit above the system button strip.
+- Gesture mode was switched at OS level and then restored to the original
+  three-button state. The app visual capture was interrupted by the locked
+  launcher view, so gesture-mode layout still needs one manual unlocked-phone
+  check.
+- No fixed-mount, moving-car blackout has been measured yet. The deployed
+  phone build is a sensor/model/startup smoke check, not a real-world drift
+  validation.
 
-This is a static-device smoke test, not a replacement for the held-out
-IO-VNBD replay. A moving 50 m/1 km blackout run is still required to measure
-physical-device drift, transition latency, and update rate.
+The build logs include a non-fatal upstream `sensors_plus` warning about its
+Kotlin Gradle plugin migration. It does not block this build, but should be
+addressed when the dependency publishes a compatible update.
 
 ## Reproduce locally
 
@@ -38,6 +46,9 @@ physical-device drift, transition latency, and update rate.
 $env:PYTHONPATH = 'ml/.vendor;ml/src;edge/python/src'
 py -3.13 -m unittest discover -s ml/tests -v
 py -3.13 -m unittest discover -s edge/python/tests -v
+py -3.13 ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
+py -3.13 ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
+py -3.13 ml/scripts/stage10_export.py
 py -3.13 ml/scripts/stage12_evaluate.py
 
 & 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' analyze
@@ -45,6 +56,6 @@ py -3.13 ml/scripts/stage12_evaluate.py
 & 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' build apk --debug
 ```
 
-The held-out replay is an offline dataset result. The physical Android smoke
-test above validates sensor, GNSS, and static motion safety; it does not yet
-validate moving-device drift or the <10% target.
+For field validation, record a fixed-mount drive in Developer Mode and run
+`ml/scripts/evaluate_live_drive.py`; the protocol is in
+`docs/REAL_WORLD_VALIDATION.md`.
