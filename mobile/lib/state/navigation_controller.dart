@@ -21,6 +21,9 @@ class NavigationController extends ChangeNotifier {
   bool routeEditorVisible = false;
   bool gnssEnabled = true;
   LatLng? destination;
+  bool tripRecording = false;
+  String tripLogLabel = 'drive';
+  String? lastTripLogPath;
 
   Future<void> start() async {
     _subscription = _engine.telemetry.listen((next) {
@@ -57,6 +60,24 @@ class NavigationController extends ChangeNotifier {
     gnssEnabled = enabled;
     notifyListeners();
     await _engine.setGnssEnabled(enabled);
+    notifyListeners();
+  }
+
+  void setTripLogLabel(String value) {
+    tripLogLabel = value;
+    notifyListeners();
+  }
+
+  Future<void> setTripRecording(bool enabled) async {
+    if (tripRecording == enabled) return;
+    if (enabled) {
+      await _engine.startTripRecording(label: tripLogLabel);
+      tripRecording = true;
+      lastTripLogPath = null;
+    } else {
+      lastTripLogPath = await _engine.stopTripRecording();
+      tripRecording = false;
+    }
     notifyListeners();
   }
 

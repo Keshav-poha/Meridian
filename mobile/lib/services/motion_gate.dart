@@ -9,21 +9,41 @@ import '../domain/telemetry_snapshot.dart';
 /// rate is negligible. GNSS speed, when present, vetoes this gate in the live
 /// engine so smooth constant-speed driving remains navigable.
 class MotionGate {
-  MotionGate({this.requiredStillSamples = 5});
+  MotionGate({this.requiredStillSamples = 10, this.shockCooldownSamples = 20});
 
   static const _gravityToleranceMps2 = 0.35;
   static const _angularRateToleranceRps = 0.12;
+  static const _shockAccelerationMps2 = 5.0;
+  static const _shockAngularRateRps = 2.5;
 
   final int requiredStillSamples;
+  final int shockCooldownSamples;
   int _stillSamples = 0;
+  int _shockSamplesRemaining = 0;
+
+  bool get inShockCooldown => _shockSamplesRemaining > 0;
 
   bool update({
     required Axis3 accelerometer,
     required Axis3 gyroscope,
     required bool gnssReportsMotion,
+    bool externalMotionAnomaly = false,
   }) {
     final accelerationMagnitude = _magnitude(accelerometer);
     final angularRateMagnitude = _magnitude(gyroscope);
+    final shock = externalMotionAnomaly ||
+        (accelerationMagnitude - 9.80665).abs() > _shockAccelerationMps2 ||
+        angularRateMagnitude > _shockAngularRateRps;
+    if (shock) {
+      _shockSamplesRemaining = shockCooldownSamples;
+      _stillSamples = 0;
+      return false;
+    }
+    if (_shockSamplesRemaining > 0) {
+      _shockSamplesRemaining--;
+      _stillSamples = 0;
+      return false;
+    }
     final gravityStable =
         (accelerationMagnitude - 9.80665).abs() <= _gravityToleranceMps2;
     final angularlyStill = angularRateMagnitude <= _angularRateToleranceRps;
@@ -49,7 +69,16 @@ class MotionGate {
 /// confirms movement, the state is retained across a deliberate GNSS outage
 /// so dead reckoning can continue without an external speedometer.
 class VehicleMotionLatch {
+  VehicleMotionLatch({
+    this.requiredMovingFixes = 3,
+    this.requiredStoppedFixes = 3,
+  });
+
+  final int requiredMovingFixes;
+  final int requiredStoppedFixes;
   bool _armed = false;
+  int _movingEvidence = 0;
+  int _stoppedEvidence = 0;
 
   bool update({
     required bool gnssEnabled,
@@ -57,12 +86,43 @@ class VehicleMotionLatch {
     required bool gnssReportsMotion,
   }) {
     if (gnssReportsMotion) {
-      _armed = true;
+      _movingEvidence =
+          (_movingEvidence + 1).clamp(0, requiredMovingFixes).toInt();
+      _stoppedEvidence = 0;
+      if (_movingEvidence >= requiredMovingFixes) _armed = true;
     } else if (gnssEnabled && gnssFixFresh) {
-      _armed = false;
+      _stoppedEvidence =
+          (_stoppedEvidence + 1).clamp(0, requiredStoppedFixes).toInt();
+      _movingEvidence = 0;
+      if (_stoppedEvidence >= requiredStoppedFixes) _armed = false;
     }
     return _armed;
   }
 
   bool get armed => _armed;
+}
+
+/// Requires a newly timestamped, quality-checked GNSS fix after an aiding
+/// outage before the navigation engine is allowed to begin its visual blend.
+///
+/// A fused-location provider can deliver a callback containing an old cached
+/// fix just after the user re-enables GNSS.  Treating that callback as a
+/// recovery would pull the display back toward the pre-outage position.  This
+/// tiny gate is deliberately independent of the location provider so its
+/// timestamp rule can be unit-tested.
+class GnssRecoveryGate {
+  DateTime? _minimumAcceptedTimestamp;
+
+  bool get awaitingFreshFix => _minimumAcceptedTimestamp != null;
+
+  void requireFixAfter(DateTime outageOrEnableTime) {
+    _minimumAcceptedTimestamp = outageOrEnableTime;
+  }
+
+  bool accept(DateTime fixTimestamp) {
+    final minimum = _minimumAcceptedTimestamp;
+    if (minimum != null && !fixTimestamp.isAfter(minimum)) return false;
+    _minimumAcceptedTimestamp = null;
+    return true;
+  }
 }

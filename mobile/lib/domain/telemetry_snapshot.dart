@@ -36,6 +36,11 @@ class TelemetrySnapshot {
     required this.actualLongitudeDeg,
     required this.deadReckoningDistanceM,
     required this.deadReckoningElapsed,
+    this.predictionConfidence = 0,
+    this.predictionConfidenceReason = 'Awaiting calibrated prediction',
+    this.mountDegraded = false,
+    this.motionAnomaly = false,
+    this.gnssDegraded = false,
   });
 
   final DateTime timestamp;
@@ -63,4 +68,9 @@ class TelemetrySnapshot {
   final double? actualLongitudeDeg;
   final double deadReckoningDistanceM;
   final Duration deadReckoningElapsed;
+  final double predictionConfidence;
+  final String predictionConfidenceReason;
+  final bool mountDegraded;
+  final bool motionAnomaly;
+  final bool gnssDegraded;
 }

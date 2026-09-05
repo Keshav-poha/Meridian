@@ -12,6 +12,76 @@
     "method": "training_split_zscore"
   },
   "training_parameter_count": 961,
+  "training_provenance": {
+    "clock_alignment": {
+      "method": "gnss_speed_cross_correlation",
+      "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+      "speed_correlation": 0.9802741273880347,
+      "zero_offset_speed_correlation": 0.9509513557718806,
+      "correlation_improvement": 0.029322771616154042,
+      "median_absolute_speed_error_mps": 0.2727777777822116,
+      "matched_samples": 4961,
+      "candidate_offsets_tested": 201,
+      "validation_passed": true
+    },
+    "smartphone_gnss_speed_unit": "mps",
+    "clock_offset_override_s": null,
+    "max_rows": 5000,
+    "max_interpolation_gap_s": 0.25,
+    "smartphone_source": {
+      "path": "ml\\data\\raw\\iovnbd_m\\S-M.csv",
+      "sha256": "26a1ee080da4db98e175e15d6fec631e6f8c285c13817d9d74ecc90ed280d103",
+      "bytes": 19798721
+    },
+    "vehicle_source": {
+      "path": "ml\\data\\raw\\iovnbd_m\\V-M.csv",
+      "sha256": "ecf977cb798082d59ad1b03ce5631a61dbf525dfe484eb005ca630b5e95b86af",
+      "bytes": 22507823
+    },
+    "calibration_artifact": {
+      "path": "ml\\reports\\stage3\\calibration.json",
+      "sha256": "36e0af9c4119b425333e657d8aa75e44a3e59525eae612305b485eb0b39ea12a",
+      "bytes": 1452
+    },
+    "calibration": {
+      "clock_alignment": {
+        "method": "gnss_speed_cross_correlation",
+        "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+        "speed_correlation": 0.9802741273880347,
+        "zero_offset_speed_correlation": 0.9509513557718806,
+        "correlation_improvement": 0.029322771616154042,
+        "median_absolute_speed_error_mps": 0.2727777777822116,
+        "matched_samples": 4961,
+        "candidate_offsets_tested": 201,
+        "validation_passed": true
+      },
+      "max_interpolation_gap_s": 0.25,
+      "smartphone_gnss_speed_unit": "mps",
+      "clock_offset_override_s": null,
+      "max_rows": 5000,
+      "calibration_samples": 4261,
+      "calibration_time_start_s": 3.9,
+      "calibration_time_end_exclusive_s": 430.0
+    },
+    "calibration_alignment_verified": true,
+    "stage5_metrics": {
+      "path": "ml\\reports\\stage5\\metrics.json",
+      "sha256": "4472b1c66d73d4ac00762f7325670e208db03e6e65e5b8297023af23722f958d",
+      "bytes": 2908
+    },
+    "trained_artifacts": {
+      "model": {
+        "path": "ml\\artifacts\\velocity_cnn\\velocity_cnn.pt",
+        "sha256": "e8d6423fef37343ef2dd89e709887e892c83ed05265ea1f59302cfeb28f8b4c5",
+        "bytes": 7057
+      },
+      "normalization": {
+        "path": "ml\\artifacts\\velocity_cnn\\normalization.npz",
+        "sha256": "9a269d6fd9b0a136ceed08b351dc5319c8290186cef951c49362fc8fa2ccca86",
+        "bytes": 1382
+      }
+    }
+  },
   "format": "tflite",
   "input": {
     "name": "imu_window",
@@ -33,5 +103,10 @@
     ],
     "layout": "batch_time_channel"
   },
-  "implementation_note": "The grouped training convolution is zero-expanded to a standard convolution for TFLite compatibility; the function is unchanged."
+  "implementation_note": "The grouped training convolution is zero-expanded to a standard convolution for TFLite compatibility; the function is unchanged.",
+  "artifact_sha256": {
+    "model": "461e3878ca5ddac69ac6029671b10921b792bc97c59ae12dba39563e11dd537c",
+    "normalization": "9a34960603207466bc54a7f92d175a07d17f39c89bf8f96f0449176e039e0960",
+    "feature_spec": "294a296a4f653c3bbefd8c8d62220aa6348fce369a4d73b8fbb9e9f835979a41"
+  }
 }

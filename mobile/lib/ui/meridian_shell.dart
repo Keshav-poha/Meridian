@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart' hide NavigationMode;
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:provider/provider.dart';
@@ -28,7 +29,10 @@ class MeridianShell extends StatelessWidget {
     };
     return Scaffold(
       body: SafeArea(child: page),
-      bottomNavigationBar: const MeridianBottomNavigation(),
+      bottomNavigationBar: const SafeArea(
+        top: false,
+        child: MeridianBottomNavigation(),
+      ),
     );
   }
 }
@@ -465,27 +469,85 @@ class DeveloperModeScreen extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                   color: _panel, borderRadius: BorderRadius.circular(22)),
-              child: Row(children: [
-                const Icon(Icons.location_on_rounded, color: _red, size: 32),
-                const SizedBox(width: 12),
-                const Expanded(
-                    child: Text('GPS/GNSS',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 23))),
-                Semantics(
-                  label: enabled
-                      ? 'Disable GNSS outage simulator'
-                      : 'Enable GNSS outage simulator',
-                  button: true,
-                  child: FilledButton(
-                    key: const ValueKey('gnss-outage-toggle'),
-                    onPressed: () => controller.setGnssEnabled(!enabled),
-                    style: FilledButton.styleFrom(
-                        backgroundColor: enabled ? _panelLight : _blue),
-                    child: Text(enabled ? 'Disable' : 'Enable'),
-                  ),
-                ),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.location_on_rounded,
+                          color: _red, size: 32),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                          child: Text('GPS/GNSS',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 23))),
+                      Semantics(
+                        label: enabled
+                            ? 'Disable GNSS outage simulator'
+                            : 'Enable GNSS outage simulator',
+                        button: true,
+                        child: FilledButton(
+                          key: const ValueKey('gnss-outage-toggle'),
+                          onPressed: () => controller.setGnssEnabled(!enabled),
+                          style: FilledButton.styleFrom(
+                              backgroundColor: enabled ? _panelLight : _blue),
+                          child: Text(enabled ? 'Disable' : 'Enable'),
+                        ),
+                      ),
+                    ]),
+                    const Divider(height: 24, color: _panelLight),
+                    Row(children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            const Text('Physical drive log',
+                                style: TextStyle(fontWeight: FontWeight.w700)),
+                            Text(
+                                'Label: ${controller.tripLogLabel.replaceAll('_', ' ')}',
+                                style: const TextStyle(
+                                    color: Colors.white60, fontSize: 12)),
+                          ])),
+                      PopupMenuButton<String>(
+                        tooltip: 'Select drive log label',
+                        onSelected: controller.setTripLogLabel,
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(value: 'drive', child: Text('Driving')),
+                          PopupMenuItem(
+                              value: 'parked_idle',
+                              child: Text('Parked / idle')),
+                          PopupMenuItem(
+                              value: 'pothole_bump',
+                              child: Text('Pothole / bump')),
+                          PopupMenuItem(
+                              value: 'handheld_shake',
+                              child: Text('Handheld shake')),
+                          PopupMenuItem(
+                              value: 'mount_shift', child: Text('Mount shift')),
+                        ],
+                        icon: const Icon(Icons.label_outline_rounded,
+                            color: Colors.white70),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton(
+                        onPressed: () => controller
+                            .setTripRecording(!controller.tripRecording),
+                        style: FilledButton.styleFrom(
+                            backgroundColor:
+                                controller.tripRecording ? _red : _panelLight),
+                        child: Text(controller.tripRecording
+                            ? 'Stop & save'
+                            : 'Record'),
+                      ),
+                    ]),
+                    if (controller.lastTripLogPath != null)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text('Saved: ${controller.lastTripLogPath}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white60, fontSize: 11))),
+                  ]),
             ),
             const SizedBox(height: 16),
             _PositionComparison(snapshot: snapshot),
@@ -524,6 +586,25 @@ class _PositionComparison extends StatelessWidget {
                 style: const TextStyle(
                     color: _red, fontWeight: FontWeight.w800, fontSize: 18)),
           ]),
+          const SizedBox(height: 10),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Expanded(
+                child: Text('Prediction confidence',
+                    style: TextStyle(fontWeight: FontWeight.w700))),
+            Flexible(
+                child: Text(_confidence(snapshot),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                        color:
+                            snapshot?.predictionConfidence == 0 ? _red : _blue,
+                        fontWeight: FontWeight.w800))),
+          ]),
+          if (snapshot != null)
+            Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(snapshot!.predictionConfidenceReason,
+                    style:
+                        const TextStyle(color: Colors.white60, fontSize: 12))),
         ]),
       );
 }
@@ -640,22 +721,41 @@ class MoreOptionsScreen extends StatelessWidget {
   const MoreOptionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        MeridianTopBar(title: 'MORE OPTIONS', onSearch: () {}),
-        Expanded(
-            child: ListView(padding: const EdgeInsets.all(20), children: const [
-          _MoreOption(icon: Icons.settings_outlined, label: 'Settings'),
-          _MoreOption(
-              icon: Icons.ios_share_rounded, label: 'Export Trip Data / Logs'),
-          _MoreOption(icon: Icons.help_outline_rounded, label: 'About & Help'),
-        ])),
-      ]);
+  Widget build(BuildContext context) {
+    final controller = context.watch<NavigationController>();
+    return Column(children: [
+      MeridianTopBar(title: 'MORE OPTIONS', onSearch: () {}),
+      Expanded(
+          child: ListView(padding: const EdgeInsets.all(20), children: [
+        _MoreOption(icon: Icons.settings_outlined, label: 'Settings'),
+        _MoreOption(
+            icon: Icons.ios_share_rounded,
+            label: 'Export Trip Data / Logs',
+            onTap: () async {
+              final path = controller.lastTripLogPath;
+              if (path == null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content:
+                        Text('Record and save a Developer Mode drive first.')));
+                return;
+              }
+              await Clipboard.setData(ClipboardData(text: path));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Saved log path copied.')));
+              }
+            }),
+        _MoreOption(icon: Icons.help_outline_rounded, label: 'About & Help'),
+      ])),
+    ]);
+  }
 }
 
 class _MoreOption extends StatelessWidget {
-  const _MoreOption({required this.icon, required this.label});
+  const _MoreOption({required this.icon, required this.label, this.onTap});
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Container(
         margin: const EdgeInsets.only(bottom: 14),
@@ -666,6 +766,7 @@ class _MoreOption extends StatelessWidget {
           title:
               Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
           trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: onTap,
         ),
       );
 }
@@ -855,6 +956,10 @@ String _error(TelemetrySnapshot? snapshot) {
       : '';
   return '${snapshot.positionErrorM.toStringAsFixed(1)} m$percent';
 }
+
+String _confidence(TelemetrySnapshot? snapshot) => snapshot == null
+    ? 'Awaiting data'
+    : '${(snapshot.predictionConfidence * 100).toStringAsFixed(0)}%';
 
 String _duration(Duration value) =>
     '${value.inMinutes.toString().padLeft(2, '0')}:${(value.inSeconds % 60).toString().padLeft(2, '0')}';

@@ -12,9 +12,11 @@
       "properties": {
         "latitude_deg": {"type": "number"},
         "longitude_deg": {"type": "number"},
-        "east_m": {"type": "number"},
-        "north_m": {"type": "number"},
-        "heading_deg": {"type": "number"}
+        "east_m": {"type": ["number", "null"]},
+        "north_m": {"type": ["number", "null"]},
+        "heading_deg": {"type": "number"},
+        "reference_gnss": {"type": "object"},
+        "last_accepted_gnss": {"type": "object"}
       }
     },
     "motion": {
@@ -25,6 +27,8 @@
         "model_speed_mps": {"type": "number"},
         "velocity_model_trusted": {"type": "boolean"},
         "mount_calibrated": {"type": "boolean"},
+        "mount_degraded": {"type": "boolean"},
+        "motion_anomaly": {"type": "boolean"},
         "stationary": {"type": "boolean"},
         "vehicle_motion_armed": {"type": "boolean"},
         "accelerometer_mps2": {"$ref": "#/$defs/vector3"},
@@ -37,6 +41,8 @@
       "required": ["available", "latitude_deg", "longitude_deg", "accuracy_m"],
       "properties": {
         "available": {"type": "boolean"},
+        "aiding_enabled": {"type": "boolean"},
+        "degraded": {"type": "boolean"},
         "latitude_deg": {"type": ["number", "null"]},
         "longitude_deg": {"type": ["number", "null"]},
         "accuracy_m": {"type": ["number", "null"]}
@@ -49,7 +55,9 @@
         "position_error_m": {"type": "number"},
         "drift_percent": {"type": "number"},
         "dr_distance_m": {"type": "number"},
-        "seconds_since_gnss": {"type": "number"}
+        "seconds_since_gnss": {"type": "number"},
+        "prediction_confidence": {"type": ["number", "null"]},
+        "prediction_confidence_reason": {"type": "string"}
       }
     }
   },

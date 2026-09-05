@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import '../domain/telemetry_snapshot.dart';
 
+enum MountCalibrationState { collecting, calibrated, degraded }
+
 /// Converts live phone IMU samples into the calibrated model feature frame.
 ///
 /// Gravity is estimated by a complementary filter: gyroscope propagation keeps
@@ -12,35 +14,116 @@ class VehicleFramePreprocessor {
   static const _gravityMps2 = 9.80665;
   static const _correctionGain = 0.04;
   static const _minimumCalibrationSpeedMps = 2.0;
-  static const _requiredCourseSamples = 5;
+  static const _requiredCourseSamples = 20;
+  static const _minimumCalibrationSeconds = 15.0;
+  static const _minimumHeadingCoverageRad = 20.0 * math.pi / 180.0;
+  static const _maximumYawResidualRad = 12.0 * math.pi / 180.0;
+  static const _mountShiftResidualRad = 25.0 * math.pi / 180.0;
+  static const _maximumCalibrationAccuracyM = 20.0;
 
   Axis3? _gravityBody;
   Axis3 _magnetometer = const Axis3(0, 0, 0);
   DateTime? _lastTimestamp;
   double? _mountYawRad;
   int _courseSamples = 0;
+  int _yawMismatchSamples = 0;
+  DateTime? _calibrationStarted;
+  DateTime? _motionAnomalyUntil;
+  MountCalibrationState _mountState = MountCalibrationState.collecting;
+  double _mountConfidence = 0;
+  final List<_CourseObservation> _courseObservations = <_CourseObservation>[];
 
-  bool get isMountCalibrated => _courseSamples >= _requiredCourseSamples;
+  bool get isMountCalibrated => _mountState == MountCalibrationState.calibrated;
+  bool get mountDegraded => _mountState == MountCalibrationState.degraded;
+  MountCalibrationState get mountState => _mountState;
+  double get mountConfidence => _mountConfidence;
+  bool get motionAnomaly =>
+      _motionAnomalyUntil != null &&
+      _lastTimestamp != null &&
+      _lastTimestamp!.isBefore(_motionAnomalyUntil!);
 
-  /// Incorporates a valid GNSS course only while the vehicle is moving.
-  void setGnssReference(
-      {required double speedMps, required double headingDeg}) {
+  /// Incorporates a quality-gated GNSS course while the vehicle is moving.
+  ///
+  /// A phone cannot obtain a trustworthy mount yaw from five lucky location
+  /// callbacks. The accepted yaw must be consistent across time and course
+  /// coverage. Once a mount is accepted, persistent disagreement degrades it
+  /// instead of silently replacing the transform mid-drive.
+  void setGnssReference({
+    required double speedMps,
+    required double headingDeg,
+    required double accuracyM,
+    required DateTime timestamp,
+    bool headingReliable = true,
+  }) {
     if (!speedMps.isFinite ||
         speedMps < _minimumCalibrationSpeedMps ||
         !headingDeg.isFinite ||
         headingDeg < 0 ||
+        !accuracyM.isFinite ||
+        accuracyM <= 0 ||
+        accuracyM > _maximumCalibrationAccuracyM ||
+        !headingReliable ||
         _gravityBody == null ||
-        _magnitude(_magnetometer) < 1e-6) {
+        _magnitude(_magnetometer) < 15.0 ||
+        _magnitude(_magnetometer) > 90.0 ||
+        motionAnomaly) {
       return;
     }
     final levelMagnetic = _rotate(_levelRotation(_gravityBody!), _magnetometer);
     final phoneMagneticCourse = math.atan2(levelMagnetic.y, levelMagnetic.x);
     final vehicleCourse = headingDeg * math.pi / 180;
     final candidateYaw = _wrapAngle(vehicleCourse - phoneMagneticCourse);
-    _mountYawRad = _mountYawRad == null
-        ? candidateYaw
-        : _circularBlend(_mountYawRad!, candidateYaw, 0.15);
-    _courseSamples = math.min(_courseSamples + 1, _requiredCourseSamples);
+
+    if (isMountCalibrated) {
+      final mismatch = _wrapAngle(candidateYaw - _mountYawRad!).abs();
+      _yawMismatchSamples =
+          mismatch > _mountShiftResidualRad ? _yawMismatchSamples + 1 : 0;
+      if (_yawMismatchSamples >= 4) {
+        _mountState = MountCalibrationState.degraded;
+        _mountConfidence = 0;
+      }
+      return;
+    }
+    // A degraded mount must be deliberately restarted/reseated. Continuing
+    // with the old transform is less safe than temporarily withholding DR.
+    if (mountDegraded) return;
+
+    _calibrationStarted ??= timestamp;
+    _courseObservations.add(_CourseObservation(
+      yawRad: candidateYaw,
+      headingRad: vehicleCourse,
+      timestamp: timestamp,
+    ));
+    final cutoff = timestamp.subtract(const Duration(seconds: 60));
+    _courseObservations
+        .removeWhere((observation) => observation.timestamp.isBefore(cutoff));
+    _courseSamples =
+        math.min(_courseObservations.length, _requiredCourseSamples);
+    final yawMean =
+        _circularMean(_courseObservations.map((value) => value.yawRad));
+    final yawResidual =
+        _circularRms(_courseObservations.map((value) => value.yawRad), yawMean);
+    final durationS =
+        timestamp.difference(_calibrationStarted!).inMilliseconds /
+            Duration.millisecondsPerSecond;
+    final headingCoverage = _circularSpread(
+        _courseObservations.map((value) => value.headingRad).toList());
+    final sampleScore = _courseSamples / _requiredCourseSamples;
+    final durationScore = durationS / _minimumCalibrationSeconds;
+    final coverageScore = headingCoverage / _minimumHeadingCoverageRad;
+    final consistencyScore = 1 - yawResidual / _maximumYawResidualRad;
+    _mountConfidence =
+        (sampleScore * durationScore * coverageScore * consistencyScore)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    if (_courseSamples >= _requiredCourseSamples &&
+        durationS >= _minimumCalibrationSeconds &&
+        headingCoverage >= _minimumHeadingCoverageRad &&
+        yawResidual <= _maximumYawResidualRad) {
+      _mountYawRad = yawMean;
+      _mountState = MountCalibrationState.calibrated;
+      _mountConfidence = math.max(0.7, _mountConfidence);
+    }
   }
 
   VehicleImuFrame update({
@@ -71,6 +154,9 @@ class VehicleFramePreprocessor {
     final yaw = _mountYawRad ?? 0.0;
     final bodyToVehicle = _multiply(_yawRotation(yaw), level);
     final linearBody = _subtract(accelerometer, _gravityBody!);
+    if (_magnitude(linearBody) > 7.0 || _magnitude(gyroscope) > 2.5) {
+      _motionAnomalyUntil = timestamp.add(const Duration(seconds: 2));
+    }
     final linearVehicle = _rotate(bodyToVehicle, linearBody);
     final gyroVehicle = _rotate(bodyToVehicle, gyroscope);
     final magneticVehicle = _unit(_rotate(bodyToVehicle, magnetometer));
@@ -80,6 +166,9 @@ class VehicleFramePreprocessor {
       magneticDirection: magneticVehicle,
       gravityBody: _gravityBody!,
       mountCalibrated: isMountCalibrated,
+      mountDegraded: mountDegraded,
+      mountConfidence: mountConfidence,
+      motionAnomaly: motionAnomaly,
     );
   }
 
@@ -95,7 +184,10 @@ class VehicleFramePreprocessor {
       _gravityMps2,
     );
     final accelerationMagnitude = _magnitude(accelerometer);
-    if ((accelerationMagnitude - _gravityMps2).abs() > 1.5) return propagated;
+    if ((accelerationMagnitude - _gravityMps2).abs() > 0.75 ||
+        _magnitude(gyroscope) > 0.35) {
+      return propagated;
+    }
     final correction = _withMagnitude(accelerometer, _gravityMps2);
     return _withMagnitude(
       _add(
@@ -208,8 +300,46 @@ class VehicleFramePreprocessor {
 
   static double _wrapAngle(double value) =>
       (value + math.pi) % (2 * math.pi) - math.pi;
-  static double _circularBlend(double from, double to, double fraction) =>
-      _wrapAngle(from + _wrapAngle(to - from) * fraction);
+  static double _circularMean(Iterable<double> values) {
+    var sine = 0.0;
+    var cosine = 0.0;
+    for (final value in values) {
+      sine += math.sin(value);
+      cosine += math.cos(value);
+    }
+    return math.atan2(sine, cosine);
+  }
+
+  static double _circularRms(Iterable<double> values, double mean) {
+    final residuals =
+        values.map((value) => _wrapAngle(value - mean)).toList(growable: false);
+    if (residuals.isEmpty) return double.infinity;
+    return math.sqrt(
+        residuals.map((value) => value * value).reduce((a, b) => a + b) /
+            residuals.length);
+  }
+
+  static double _circularSpread(List<double> values) {
+    var spread = 0.0;
+    for (var first = 0; first < values.length; first++) {
+      for (var second = first + 1; second < values.length; second++) {
+        spread =
+            math.max(spread, _wrapAngle(values[first] - values[second]).abs());
+      }
+    }
+    return spread;
+  }
+}
+
+class _CourseObservation {
+  const _CourseObservation({
+    required this.yawRad,
+    required this.headingRad,
+    required this.timestamp,
+  });
+  final double yawRad;
+  final double headingRad;
+  final DateTime timestamp;
 }
 
 class VehicleImuFrame {
@@ -219,6 +349,9 @@ class VehicleImuFrame {
     required this.magneticDirection,
     required this.gravityBody,
     required this.mountCalibrated,
+    required this.mountDegraded,
+    required this.mountConfidence,
+    required this.motionAnomaly,
   });
 
   final Axis3 linearAcceleration;
@@ -226,6 +359,9 @@ class VehicleImuFrame {
   final Axis3 magneticDirection;
   final Axis3 gravityBody;
   final bool mountCalibrated;
+  final bool mountDegraded;
+  final double mountConfidence;
+  final bool motionAnomaly;
 
   List<double> get modelValues => <double>[
         linearAcceleration.x,

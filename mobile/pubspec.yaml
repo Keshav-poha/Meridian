@@ -16,6 +16,7 @@ dependencies:
   sensors_plus: ^6.1.1
   provider: ^6.1.2
   tflite_flutter: ^0.12.1
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

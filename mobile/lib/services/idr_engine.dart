@@ -5,6 +5,8 @@ import '../domain/telemetry_snapshot.dart';
 abstract interface class IdrEngine {
   Stream<TelemetrySnapshot> get telemetry;
   Future<void> setGnssEnabled(bool enabled);
+  Future<void> startTripRecording({required String label});
+  Future<String?> stopTripRecording();
   Future<void> start();
   Future<void> stop();
 }

@@ -24,6 +24,11 @@ void main() {
     expect(controller.gnssEnabled, isFalse);
     controller.selectTab(MeridianTab.developer);
     expect(controller.tab, MeridianTab.developer);
+    controller.setTripLogLabel('parked_idle');
+    await controller.setTripRecording(true);
+    expect(engine.tripRecording, isTrue);
+    await controller.setTripRecording(false);
+    expect(controller.lastTripLogPath, 'test-log.jsonl');
     controller.dispose();
   });
 }
@@ -36,6 +41,18 @@ class _FakeEngine implements IdrEngine {
   Stream<TelemetrySnapshot> get telemetry => _stream.stream;
   @override
   Future<void> setGnssEnabled(bool enabled) async => gnssEnabled = enabled;
+  bool tripRecording = false;
+  @override
+  Future<void> startTripRecording({required String label}) async {
+    tripRecording = true;
+  }
+
+  @override
+  Future<String?> stopTripRecording() async {
+    tripRecording = false;
+    return 'test-log.jsonl';
+  }
+
   @override
   Future<void> start() async {}
   @override
