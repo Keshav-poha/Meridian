@@ -6,32 +6,38 @@ enum MountCalibrationState { collecting, calibrated, degraded }
 
 /// Converts live phone IMU samples into the calibrated model feature frame.
 ///
-/// Gravity is estimated by a complementary filter: gyroscope propagation keeps
-/// the estimate responsive during rotation, while accelerometer correction
-/// prevents gyro drift. GNSS course during actual motion resolves the final
-/// phone-mount yaw that gravity alone cannot observe.
+/// Gravity resolves pitch and roll. Yaw is intentionally resolved from vehicle
+/// kinematics, not a dashboard-distorted compass: while GNSS is healthy, a
+/// gravity-levelled phone acceleration must agree with longitudinal and
+/// centripetal acceleration derived from GNSS speed/course changes. Once that
+/// fixed mount transform has enough evidence it survives the GNSS blackout.
 class VehicleFramePreprocessor {
   static const _gravityMps2 = 9.80665;
   static const _correctionGain = 0.04;
   static const _minimumCalibrationSpeedMps = 2.0;
-  static const _requiredCourseSamples = 20;
+  static const _requiredTurningSamples = 20;
   static const _minimumCalibrationSeconds = 15.0;
   static const _minimumHeadingCoverageRad = 20.0 * math.pi / 180.0;
-  static const _maximumYawResidualRad = 12.0 * math.pi / 180.0;
-  static const _mountShiftResidualRad = 25.0 * math.pi / 180.0;
+  static const _minimumTurnRateRps = 0.03;
+  static const _minimumDynamicAgreement = 0.20;
+  static const _mountShiftAgreement = 0.20;
   static const _maximumCalibrationAccuracyM = 20.0;
+  static const _minimumGnssReferenceInterval = Duration(milliseconds: 800);
+  static const _maximumGnssReferenceGap = Duration(milliseconds: 2500);
+  static const _maximumImuReferenceGap = Duration(milliseconds: 750);
 
   Axis3? _gravityBody;
-  Axis3 _magnetometer = const Axis3(0, 0, 0);
+  Axis3? _latestLevelLinear;
   DateTime? _lastTimestamp;
+  _GnssKinematicReference? _previousGnssReference;
   double? _mountYawRad;
-  int _courseSamples = 0;
   int _yawMismatchSamples = 0;
   DateTime? _calibrationStarted;
   DateTime? _motionAnomalyUntil;
   MountCalibrationState _mountState = MountCalibrationState.collecting;
   double _mountConfidence = 0;
-  final List<_CourseObservation> _courseObservations = <_CourseObservation>[];
+  final List<_KinematicObservation> _kinematicObservations =
+      <_KinematicObservation>[];
 
   bool get isMountCalibrated => _mountState == MountCalibrationState.calibrated;
   bool get mountDegraded => _mountState == MountCalibrationState.degraded;
@@ -42,12 +48,11 @@ class VehicleFramePreprocessor {
       _lastTimestamp != null &&
       _lastTimestamp!.isBefore(_motionAnomalyUntil!);
 
-  /// Incorporates a quality-gated GNSS course while the vehicle is moving.
+  /// Incorporates a quality-gated GNSS observation while the vehicle moves.
   ///
-  /// A phone cannot obtain a trustworthy mount yaw from five lucky location
-  /// callbacks. The accepted yaw must be consistent across time and course
-  /// coverage. Once a mount is accepted, persistent disagreement degrades it
-  /// instead of silently replacing the transform mid-drive.
+  /// This makes calibration resilient to magnetic interference. It requires
+  /// actual turning evidence; a straight, constant-speed segment cannot prove
+  /// a phone's yaw and therefore never silently enables dead reckoning.
   void setGnssReference({
     required double speedMps,
     required double headingDeg,
@@ -64,65 +69,104 @@ class VehicleFramePreprocessor {
         accuracyM > _maximumCalibrationAccuracyM ||
         !headingReliable ||
         _gravityBody == null ||
-        _magnitude(_magnetometer) < 15.0 ||
-        _magnitude(_magnetometer) > 90.0 ||
+        _latestLevelLinear == null ||
+        _lastTimestamp == null ||
+        timestamp.difference(_lastTimestamp!).abs() > _maximumImuReferenceGap ||
         motionAnomaly) {
       return;
     }
-    final levelMagnetic = _rotate(_levelRotation(_gravityBody!), _magnetometer);
-    final phoneMagneticCourse = math.atan2(levelMagnetic.y, levelMagnetic.x);
-    final vehicleCourse = headingDeg * math.pi / 180;
-    final candidateYaw = _wrapAngle(vehicleCourse - phoneMagneticCourse);
 
-    if (isMountCalibrated) {
-      final mismatch = _wrapAngle(candidateYaw - _mountYawRad!).abs();
-      _yawMismatchSamples =
-          mismatch > _mountShiftResidualRad ? _yawMismatchSamples + 1 : 0;
-      if (_yawMismatchSamples >= 4) {
-        _mountState = MountCalibrationState.degraded;
-        _mountConfidence = 0;
+    final current = _GnssKinematicReference(
+      speedMps: speedMps,
+      headingRad: headingDeg * math.pi / 180.0,
+      timestamp: timestamp,
+    );
+    final previous = _previousGnssReference;
+    if (previous == null || !timestamp.isAfter(previous.timestamp)) {
+      if (previous == null || timestamp.isAfter(previous.timestamp)) {
+        _previousGnssReference = current;
       }
       return;
     }
+    final elapsed = timestamp.difference(previous.timestamp);
+    if (elapsed < _minimumGnssReferenceInterval) return;
+    _previousGnssReference = current;
+    if (elapsed > _maximumGnssReferenceGap) return;
+
+    final elapsedS = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    final yawRate =
+        _wrapAngle(current.headingRad - previous.headingRad) / elapsedS;
+    final reference = Axis3(
+      (current.speedMps - previous.speedMps) / elapsedS,
+      ((current.speedMps + previous.speedMps) * 0.5) * yawRate,
+      0,
+    );
+    final source = _latestLevelLinear!;
+    if (yawRate.abs() < _minimumTurnRateRps ||
+        _magnitude(source) < 0.1 ||
+        _magnitude(reference) < 0.1) {
+      return;
+    }
+
+    if (isMountCalibrated) {
+      _checkForMountShift(source, reference);
+      return;
+    }
     // A degraded mount must be deliberately restarted/reseated. Continuing
-    // with the old transform is less safe than temporarily withholding DR.
+    // with an invalid transform is less safe than withholding DR.
     if (mountDegraded) return;
 
     _calibrationStarted ??= timestamp;
-    _courseObservations.add(_CourseObservation(
-      yawRad: candidateYaw,
-      headingRad: vehicleCourse,
+    _kinematicObservations.add(_KinematicObservation(
+      source: source,
+      reference: reference,
+      headingRad: current.headingRad,
       timestamp: timestamp,
     ));
-    final cutoff = timestamp.subtract(const Duration(seconds: 60));
-    _courseObservations
+    final cutoff = timestamp.subtract(const Duration(seconds: 90));
+    _kinematicObservations
         .removeWhere((observation) => observation.timestamp.isBefore(cutoff));
-    _courseSamples =
-        math.min(_courseObservations.length, _requiredCourseSamples);
-    final yawMean =
-        _circularMean(_courseObservations.map((value) => value.yawRad));
-    final yawResidual =
-        _circularRms(_courseObservations.map((value) => value.yawRad), yawMean);
+    _updateKinematicFit(timestamp);
+  }
+
+  void _updateKinematicFit(DateTime timestamp) {
+    if (_kinematicObservations.isEmpty) return;
+    final fit = _fitKinematicYaw(_kinematicObservations);
     final durationS =
         timestamp.difference(_calibrationStarted!).inMilliseconds /
             Duration.millisecondsPerSecond;
     final headingCoverage = _circularSpread(
-        _courseObservations.map((value) => value.headingRad).toList());
-    final sampleScore = _courseSamples / _requiredCourseSamples;
+      _kinematicObservations.map((value) => value.headingRad).toList(),
+    );
+    final sampleScore = _kinematicObservations.length / _requiredTurningSamples;
     final durationScore = durationS / _minimumCalibrationSeconds;
     final coverageScore = headingCoverage / _minimumHeadingCoverageRad;
-    final consistencyScore = 1 - yawResidual / _maximumYawResidualRad;
+    final agreementScore = (fit.agreement - _minimumDynamicAgreement) /
+        (1 - _minimumDynamicAgreement);
     _mountConfidence =
-        (sampleScore * durationScore * coverageScore * consistencyScore)
+        (sampleScore * durationScore * coverageScore * agreementScore)
             .clamp(0.0, 1.0)
             .toDouble();
-    if (_courseSamples >= _requiredCourseSamples &&
+    if (_kinematicObservations.length >= _requiredTurningSamples &&
         durationS >= _minimumCalibrationSeconds &&
         headingCoverage >= _minimumHeadingCoverageRad &&
-        yawResidual <= _maximumYawResidualRad) {
-      _mountYawRad = yawMean;
+        fit.agreement >= _minimumDynamicAgreement) {
+      _mountYawRad = fit.yawRad;
       _mountState = MountCalibrationState.calibrated;
       _mountConfidence = math.max(0.7, _mountConfidence);
+    }
+  }
+
+  void _checkForMountShift(Axis3 source, Axis3 reference) {
+    final yaw = _mountYawRad;
+    if (yaw == null) return;
+    final agreement =
+        _directionAgreement(_rotate(_yawRotation(yaw), source), reference);
+    _yawMismatchSamples =
+        agreement < _mountShiftAgreement ? _yawMismatchSamples + 1 : 0;
+    if (_yawMismatchSamples >= 4) {
+      _mountState = MountCalibrationState.degraded;
+      _mountConfidence = 0;
     }
   }
 
@@ -132,7 +176,6 @@ class VehicleFramePreprocessor {
     required Axis3 magnetometer,
     required DateTime timestamp,
   }) {
-    _magnetometer = magnetometer;
     final dt = _lastTimestamp == null
         ? 0.0
         : math.min(
@@ -151,9 +194,10 @@ class VehicleFramePreprocessor {
     );
 
     final level = _levelRotation(_gravityBody!);
+    final linearBody = _subtract(accelerometer, _gravityBody!);
+    _latestLevelLinear = _rotate(level, linearBody);
     final yaw = _mountYawRad ?? 0.0;
     final bodyToVehicle = _multiply(_yawRotation(yaw), level);
-    final linearBody = _subtract(accelerometer, _gravityBody!);
     if (_magnitude(linearBody) > 7.0 || _magnitude(gyroscope) > 2.5) {
       _motionAnomalyUntil = timestamp.add(const Duration(seconds: 2));
     }
@@ -169,6 +213,38 @@ class VehicleFramePreprocessor {
       mountDegraded: mountDegraded,
       mountConfidence: mountConfidence,
       motionAnomaly: motionAnomaly,
+    );
+  }
+
+  static _KinematicFit _fitKinematicYaw(
+    List<_KinematicObservation> observations,
+  ) {
+    var dot = 0.0;
+    var cross = 0.0;
+    for (final observation in observations) {
+      final weight = _magnitude(observation.reference).clamp(0.1, 5.0);
+      dot += weight *
+          (observation.source.x * observation.reference.x +
+              observation.source.y * observation.reference.y);
+      cross += weight *
+          (observation.source.x * observation.reference.y -
+              observation.source.y * observation.reference.x);
+    }
+    final yaw = math.atan2(cross, dot);
+    var weightedAgreement = 0.0;
+    var totalWeight = 0.0;
+    for (final observation in observations) {
+      final weight = _magnitude(observation.reference).clamp(0.1, 5.0);
+      final aligned = _rotate(_yawRotation(yaw), observation.source);
+      final agreement = _directionAgreement(aligned, observation.reference);
+      if (agreement.isFinite) {
+        weightedAgreement += weight * agreement;
+        totalWeight += weight;
+      }
+    }
+    return _KinematicFit(
+      yawRad: yaw,
+      agreement: totalWeight > 0 ? weightedAgreement / totalWeight : -1,
     );
   }
 
@@ -298,26 +374,13 @@ class VehicleFramePreprocessor {
     return norm < 1e-9 ? const Axis3(0, 0, 0) : _scale(value, magnitude / norm);
   }
 
-  static double _wrapAngle(double value) =>
-      (value + math.pi) % (2 * math.pi) - math.pi;
-  static double _circularMean(Iterable<double> values) {
-    var sine = 0.0;
-    var cosine = 0.0;
-    for (final value in values) {
-      sine += math.sin(value);
-      cosine += math.cos(value);
-    }
-    return math.atan2(sine, cosine);
+  static double _directionAgreement(Axis3 left, Axis3 right) {
+    final denominator = _magnitude(left) * _magnitude(right);
+    return denominator < 1e-9 ? double.nan : _dot(left, right) / denominator;
   }
 
-  static double _circularRms(Iterable<double> values, double mean) {
-    final residuals =
-        values.map((value) => _wrapAngle(value - mean)).toList(growable: false);
-    if (residuals.isEmpty) return double.infinity;
-    return math.sqrt(
-        residuals.map((value) => value * value).reduce((a, b) => a + b) /
-            residuals.length);
-  }
+  static double _wrapAngle(double value) =>
+      (value + math.pi) % (2 * math.pi) - math.pi;
 
   static double _circularSpread(List<double> values) {
     var spread = 0.0;
@@ -331,15 +394,37 @@ class VehicleFramePreprocessor {
   }
 }
 
-class _CourseObservation {
-  const _CourseObservation({
-    required this.yawRad,
+class _GnssKinematicReference {
+  const _GnssKinematicReference({
+    required this.speedMps,
     required this.headingRad,
     required this.timestamp,
   });
-  final double yawRad;
+
+  final double speedMps;
   final double headingRad;
   final DateTime timestamp;
+}
+
+class _KinematicObservation {
+  const _KinematicObservation({
+    required this.source,
+    required this.reference,
+    required this.headingRad,
+    required this.timestamp,
+  });
+
+  final Axis3 source;
+  final Axis3 reference;
+  final double headingRad;
+  final DateTime timestamp;
+}
+
+class _KinematicFit {
+  const _KinematicFit({required this.yawRad, required this.agreement});
+
+  final double yawRad;
+  final double agreement;
 }
 
 class VehicleImuFrame {

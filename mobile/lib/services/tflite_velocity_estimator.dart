@@ -81,12 +81,9 @@ class TfliteVelocityEstimator {
     required DateTime timestamp,
     required bool headingReliable,
   }) {
-    final now = DateTime.now();
-    if (_magnetometerTimestamp == null ||
-        now.difference(_magnetometerTimestamp!).abs() >
-            const Duration(milliseconds: 750)) {
-      return;
-    }
+    // Mount yaw is fit from GNSS-derived vehicle kinematics, not from the
+    // magnetometer. A dashboard-distorted or temporarily stale compass must
+    // not prevent a sound speed/course calibration from being collected.
     _preprocessor.setGnssReference(
       speedMps: speedMps,
       headingDeg: headingDeg,
@@ -148,6 +145,7 @@ class TfliteVelocityEstimator {
       motionAnomaly: latestFrame.motionAnomaly,
       sensorsFresh: sensorsFresh,
       vehicleYawRateRps: latestFrame.gyroscope.z,
+      forwardAccelerationMps2: latestFrame.linearAcceleration.x,
     );
   }
 
@@ -228,6 +226,7 @@ class VelocityEstimate {
     required this.motionAnomaly,
     required this.sensorsFresh,
     required this.vehicleYawRateRps,
+    required this.forwardAccelerationMps2,
   });
 
   final double speedMps;
@@ -238,6 +237,7 @@ class VelocityEstimate {
   final bool motionAnomaly;
   final bool sensorsFresh;
   final double vehicleYawRateRps;
+  final double forwardAccelerationMps2;
 
   bool get hasPlausibleSpeed =>
       speedMps.isFinite &&

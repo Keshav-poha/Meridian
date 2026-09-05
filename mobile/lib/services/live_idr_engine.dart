@@ -6,6 +6,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import '../domain/telemetry_snapshot.dart';
 import 'idr_engine.dart';
+import 'ins_speed_filter.dart';
 import 'motion_gate.dart';
 import 'native_gnss_stream.dart';
 import 'tflite_velocity_estimator.dart';
@@ -17,27 +18,35 @@ import 'trip_recorder.dart';
 /// positions are retained strictly as a Developer Mode ground-truth comparator;
 /// they are never used to update the displayed inertial position.
 class LiveIdrEngine implements IdrEngine {
-  // Android may batch stationary fused-location callbacks even when a
-  // one-second interval is requested. Keep the UI in GNSS-aided mode across
-  // that normal five-second cadence; manual outage simulation remains
-  // immediate because it bypasses this watchdog.
-  static const _gnssFixTimeout = Duration(seconds: 8);
+  // A stream heartbeat, rather than a single provider's timestamp, defines
+  // availability. Android may legitimately repeat a stationary location's
+  // timestamp while the high-accuracy provider is still healthy. Four seconds
+  // avoids false GPS-loss flashes while still declaring a genuine service loss
+  // without delay.
+  static const _gnssFixTimeout = Duration(seconds: 4);
   static const _reacquisitionBlend = Duration(milliseconds: 500);
+  static const _maximumNavigationAccuracyM = 100.0;
   static const _maximumAidingAccuracyM = 25.0;
   static const _maximumDrSpeedMps = 45.0;
-  static const _maximumDrSpeedStepMps = 7.0;
   static const _modelInitializationTimeout = Duration(seconds: 8);
   static const _maximumBootstrapFixAge = Duration(minutes: 2);
+  static const _maximumNavigationFixAge = Duration(seconds: 15);
 
   final StreamController<TelemetrySnapshot> _telemetry =
       StreamController<TelemetrySnapshot>.broadcast();
   final MotionGate _motionGate = MotionGate();
   final VehicleMotionLatch _vehicleMotionLatch = VehicleMotionLatch();
   final GnssRecoveryGate _gnssRecoveryGate = GnssRecoveryGate();
+  final InsSpeedFilter _insSpeedFilter = InsSpeedFilter();
   final TripRecorder _tripRecorder = TripRecorder();
   final NativeGnssStream _nativeGnssStream = NativeGnssStream();
 
+  // Keep Flutter's best-for-navigation stream as the primary source. This is
+  // the stream users previously observed to be reliable. The native GPS
+  // provider is supplemental: losing it must not mark a healthy high-accuracy
+  // Android location as lost.
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<Position>? _nativePositionSubscription;
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   StreamSubscription<GyroscopeEvent>? _gyroscopeSubscription;
   StreamSubscription<MagnetometerEvent>? _magnetometerSubscription;
@@ -46,6 +55,7 @@ class LiveIdrEngine implements IdrEngine {
   Position? _actualPosition;
   Position? _lastGoodGnss;
   DateTime? _lastAcceptedGnssTimestamp;
+  DateTime? _lastAcceptedGnssReceiptAt;
   DateTime? _lastTick;
   DateTime? _lossStarted;
   DateTime? _reacquireStarted;
@@ -69,7 +79,6 @@ class LiveIdrEngine implements IdrEngine {
   double _predictionConfidence = 0;
   String _predictionConfidenceReason = 'Awaiting calibrated prediction';
   String? _velocityModelStartupWarning;
-  double? _lastAcceptedDrSpeedMps;
   double _drDistanceM = 0;
   bool _stationary = false;
   bool _vehicleMotionArmed = false;
@@ -85,6 +94,9 @@ class LiveIdrEngine implements IdrEngine {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    // A restarted navigation session must not inherit a speed anchor from a
+    // previous trip before it receives a new measured GNSS speed.
+    _insSpeedFilter.reset();
     final lifecycleGeneration = ++_lifecycleGeneration;
     try {
       // Raw sensors and the 10 Hz ticker are the minimal live runtime.  Start
@@ -198,14 +210,23 @@ class LiveIdrEngine implements IdrEngine {
       );
       return;
     }
-    final subscription = _nativeGnssStream.positions.listen(
+    // This is the source used by the earlier app version. It combines Android
+    // high-accuracy providers and continues to deliver an accurate location on
+    // devices whose raw GPS provider is slow to issue its first epoch.
+    final settings = AndroidSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+      intervalDuration: const Duration(seconds: 1),
+    );
+    final subscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
       (position) {
         if (_isActive(lifecycleGeneration)) _onPosition(position);
       },
       onError: (_, __) {
         if (_isActive(lifecycleGeneration)) {
           _setLocationStatus(
-            'Location provider error — waiting for a new Android location fix',
+            'Android high-accuracy location stream error — waiting for a new fix',
           );
         }
       },
@@ -215,8 +236,23 @@ class LiveIdrEngine implements IdrEngine {
       return;
     }
     _positionSubscription = subscription;
+
+    // Direct GPS observations are useful provenance when present, but no
+    // longer form a single point of failure for the user-facing location.
+    // A number of Android builds delay GPS_PROVIDER callbacks while their
+    // fused best-for-navigation location is already accurate.
+    _nativePositionSubscription = _nativeGnssStream.positions.listen(
+      (position) {
+        if (_isActive(lifecycleGeneration)) _onPosition(position);
+      },
+      onError: (_, __) {
+        // The primary high-accuracy stream stays active. Do not overwrite its
+        // healthy status or force a false "GPS LOST" banner when native GPS is
+        // temporarily unavailable.
+      },
+    );
     _setLocationStatus(
-      'Android location provider active — waiting for a measured location fix',
+      'Android high-accuracy location stream active — waiting for a measured fix',
     );
     // Stream delivery can legitimately take a while on a cold GPS start.
     // Use a recent physical cache and an independent one-shot request to make
@@ -224,11 +260,10 @@ class LiveIdrEngine implements IdrEngine {
     // the stricter fusion validation below.
     unawaited(_seedBootstrapPosition(
       AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
-        timeLimit: const Duration(seconds: 12),
-      ),
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 0,
+          intervalDuration: const Duration(seconds: 1),
+          timeLimit: const Duration(seconds: 12)),
       lifecycleGeneration,
     ));
   }
@@ -270,7 +305,8 @@ class LiveIdrEngine implements IdrEngine {
       _tick();
       return;
     }
-    if (!_isUsableGnssFix(position, now) || !_isPlausibleAidingFix(position)) {
+    if (!_isNavigationGnssFix(position, now) ||
+        !_isPlausibleAidingFix(position)) {
       _firstInitialQualityFixTimestamp = null;
       _setLocationStatus(_rejectedLocationStatus(position, now));
       _tick();
@@ -293,12 +329,17 @@ class LiveIdrEngine implements IdrEngine {
       _tick();
       return;
     }
-    _gnssDegraded = position.accuracy > 10.0;
+    // Availability and fusion quality are intentionally separate. A visible,
+    // current 30–80 m Android fix still means location is available; it must
+    // not turn the UI into GPS LOST. It is simply withheld from sensitive
+    // calibration/fusion updates until it improves.
+    _gnssDegraded = !_isFusionQualityGnssFix(position, now);
     _locationStatus = _gnssDegraded
         ? 'Location accepted with degraded accuracy (${position.accuracy.toStringAsFixed(1)} m)'
         : 'Fusion-quality location accepted';
     _lastGoodGnss = position;
     _lastAcceptedGnssTimestamp = position.timestamp;
+    _lastAcceptedGnssReceiptAt = now;
     final courseReliable = _hasUsableCourse(position);
     if (courseReliable) {
       _velocityEstimator?.setGnssReference(
@@ -310,8 +351,8 @@ class LiveIdrEngine implements IdrEngine {
       );
       _headingDegrees = position.heading;
     }
-    if (_hasUsableSpeed(position)) {
-      _lastAcceptedDrSpeedMps = position.speed;
+    if (_hasMeasuredSpeed(position)) {
+      _insSpeedFilter.anchorGnssSpeed(position.speed);
     }
     final fix = _LocalPosition(position.latitude, position.longitude);
     _lastAccurate = fix;
@@ -327,7 +368,7 @@ class LiveIdrEngine implements IdrEngine {
         ? '${position.accuracy.toStringAsFixed(0)} m'
         : 'unknown accuracy';
     _setLocationStatus(
-      'High-accuracy location visible ($accuracy) — waiting for a fusion-quality fix',
+      'Location visible ($accuracy) — validating navigation quality',
     );
   }
 
@@ -337,18 +378,19 @@ class LiveIdrEngine implements IdrEngine {
   }
 
   String _rejectedLocationStatus(Position position, DateTime now) {
-    if (!_isDisplayableGnssPosition(position, now)) {
+    if (!_isDisplayableGnssPosition(position, now) ||
+        position.timestamp.isBefore(now.subtract(_maximumNavigationFixAge))) {
       return 'Location fix is stale or invalid — waiting for a current fix';
     }
     if (!position.hasAccuracy ||
         !position.accuracy.isFinite ||
         position.accuracy <= 0) {
-      return 'Location fix has no usable accuracy — waiting for a quality fix';
+      return 'Location update has no measured accuracy — retaining the latest GNSS fix';
     }
-    if (position.accuracy > _maximumAidingAccuracyM) {
-      return 'Location accuracy is ${position.accuracy.toStringAsFixed(0)} m — waiting for ${_maximumAidingAccuracyM.toStringAsFixed(0)} m or better';
+    if (position.accuracy > _maximumNavigationAccuracyM) {
+      return 'Location accuracy is ${position.accuracy.toStringAsFixed(0)} m — retaining the latest GNSS fix';
     }
-    return 'Location jump rejected — waiting for a consistent quality fix';
+    return 'Location jump rejected — retaining the latest GNSS fix';
   }
 
   bool _hasInitialQualityFixPair(Position position, DateTime now) {
@@ -439,17 +481,27 @@ class LiveIdrEngine implements IdrEngine {
       externalMotionAnomaly: _motionAnomaly,
     );
     final mode = _navigationMode(freshFix, now);
-    final trustedDrVelocity = mode == NavigationMode.deadReckoning &&
+    final insPropagationReady = mode == NavigationMode.deadReckoning &&
         _vehicleMotionLatch.armed &&
-        _velocityModelTrusted &&
-        !_stationary;
+        !_stationary &&
+        inferred != null &&
+        inferred.mountCalibrated &&
+        inferred.sensorsFresh &&
+        !inferred.mountDegraded &&
+        !inferred.motionAnomaly;
     // In GNSS-aided mode, GNSS speed is the measured reference. The CNN is
     // reserved for a valid, calibrated blackout window rather than overriding
     // a good satellite measurement with a model extrapolation.
     _speedMps = gnssReportsMotion
         ? _lastGoodGnss!.speed
-        : trustedDrVelocity
-            ? _safeDrSpeed(_modelSpeedMps, dt)
+        : insPropagationReady
+            ? (_insSpeedFilter.propagate(
+                  forwardAccelerationMps2: inferred.forwardAccelerationMps2,
+                  dtSeconds: dt,
+                  cnnSpeedMps: _velocityModelTrusted ? _modelSpeedMps : null,
+                  cnnTrusted: _velocityModelTrusted,
+                ) ??
+                0.0)
             : 0.0;
 
     final sourceHeading =
@@ -604,16 +656,28 @@ class LiveIdrEngine implements IdrEngine {
   bool _isFreshGoodFix(DateTime now) {
     if (_gnssRecoveryGate.awaitingFreshFix) return false;
     final fix = _lastGoodGnss;
-    if (fix == null) return false;
-    final age = now.difference(fix.timestamp);
-    return age >= Duration.zero && age <= _gnssFixTimeout;
+    final receipt = _lastAcceptedGnssReceiptAt;
+    if (fix == null || receipt == null) return false;
+    final fixAge = now.difference(fix.timestamp);
+    final heartbeatAge = now.difference(receipt);
+    return fixAge >= Duration.zero &&
+        fixAge <= _maximumNavigationFixAge &&
+        heartbeatAge >= Duration.zero &&
+        heartbeatAge <= _gnssFixTimeout;
   }
 
-  bool _isUsableGnssFix(Position position, DateTime now) =>
+  /// A navigation-quality fix keeps the map and GNSS-aided state alive. It is
+  /// deliberately broader than a fusion-quality fix: the user should see an
+  /// honestly degraded position, not a false outage, while accuracy converges.
+  bool _isNavigationGnssFix(Position position, DateTime now) =>
       _isDisplayableGnssPosition(position, now) &&
-      position.hasAccuracy &&
       position.accuracy.isFinite &&
       position.accuracy > 0 &&
+      position.accuracy <= _maximumNavigationAccuracyM &&
+      !position.timestamp.isBefore(now.subtract(_maximumNavigationFixAge));
+
+  bool _isFusionQualityGnssFix(Position position, DateTime now) =>
+      _isNavigationGnssFix(position, now) &&
       position.accuracy <= _maximumAidingAccuracyM;
 
   bool _isDisplayableGnssPosition(Position position, DateTime now) =>
@@ -629,10 +693,16 @@ class LiveIdrEngine implements IdrEngine {
     final previous = _lastGoodGnss;
     final previousTimestamp = _lastAcceptedGnssTimestamp;
     if (previous == null || previousTimestamp == null) return true;
-    if (!candidate.timestamp.isAfter(previousTimestamp)) return false;
-    final elapsedS =
-        candidate.timestamp.difference(previousTimestamp).inMilliseconds / 1000;
-    if (elapsedS <= 0) return false;
+    // GPS_PROVIDER and Android's high-accuracy provider can legitimately
+    // publish the same physical epoch. Treat a position with an equal
+    // timestamp as a heartbeat when it agrees spatially; only a time reversal
+    // is stale. This restores the normal stationary-location behaviour from
+    // the original app without accepting a teleport.
+    if (candidate.timestamp.isBefore(previousTimestamp)) return false;
+    final elapsedS = math.max(
+      0.0,
+      candidate.timestamp.difference(previousTimestamp).inMilliseconds / 1000,
+    );
     final previousPoint = _LocalPosition(previous.latitude, previous.longitude);
     final candidatePoint =
         _LocalPosition(candidate.latitude, candidate.longitude);
@@ -654,6 +724,14 @@ class LiveIdrEngine implements IdrEngine {
       (!position.hasSpeedAccuracy ||
           (position.speedAccuracy.isFinite && position.speedAccuracy <= 3));
 
+  bool _hasMeasuredSpeed(Position position) =>
+      position.hasSpeed &&
+      position.speed.isFinite &&
+      position.speed >= 0 &&
+      position.speed <= _maximumDrSpeedMps &&
+      (!position.hasSpeedAccuracy ||
+          (position.speedAccuracy.isFinite && position.speedAccuracy <= 5));
+
   bool _hasUsableCourse(Position position) =>
       _hasUsableSpeed(position) &&
       position.hasHeading &&
@@ -664,23 +742,6 @@ class LiveIdrEngine implements IdrEngine {
       (!position.hasHeadingAccuracy ||
           (position.headingAccuracy.isFinite &&
               position.headingAccuracy <= 35));
-
-  double _safeDrSpeed(double candidate, double dt) {
-    if (!candidate.isFinite ||
-        candidate < 0 ||
-        candidate > _maximumDrSpeedMps) {
-      return 0;
-    }
-    final previous = _lastAcceptedDrSpeedMps;
-    final allowedStep = math.max(_maximumDrSpeedStepMps, 8.0 * dt);
-    // Reject, rather than clip, an abrupt network spike. A new accepted
-    // estimate establishes the next plausible comparison point.
-    if (previous != null && (candidate - previous).abs() > allowedStep) {
-      return 0;
-    }
-    _lastAcceptedDrSpeedMps = candidate;
-    return candidate;
-  }
 
   void _setPredictionConfidence(
     VelocityEstimate? inferred,
@@ -762,6 +823,7 @@ class LiveIdrEngine implements IdrEngine {
     _started = false;
     _ticker?.cancel();
     await _positionSubscription?.cancel();
+    await _nativePositionSubscription?.cancel();
     await _accelerometerSubscription?.cancel();
     await _gyroscopeSubscription?.cancel();
     await _magnetometerSubscription?.cancel();

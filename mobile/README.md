@@ -1,10 +1,13 @@
 # MERIDIAN Flutter app
 
 MERIDIAN is the Android client for the Intelligent Dead Reckoning pipeline.
-It uses `sensors_plus` and `geolocator` for live device input, runs the shared
-TinyVelocityCNN TFLite model on 2-second IMU windows, and exposes the resulting
-telemetry in Developer Mode. Training, shared preprocessing definitions, and the
-portable edge runtime remain outside this directory.
+It uses `sensors_plus` and `geolocator` for live device input, keeps Android's
+best-for-navigation location stream as the primary GNSS source, and runs the
+shared TinyVelocityCNN TFLite model on 2-second IMU windows. The navigation
+speed is GNSS-anchored and gravity-compensated; a bounded CNN can contribute
+only a small change-of-velocity residual during a valid blackout. Training,
+shared preprocessing definitions, and the portable edge runtime remain outside
+this directory.
 
 The app contains the following live states:
 
@@ -24,10 +27,14 @@ flutter pub get
 flutter run
 ```
 
-The first run requires location permission. The map uses OpenStreetMap tiles, so
-it requires a network connection; navigation prediction continues when GNSS is
-disabled from Developer Mode. That toggle keeps raw physical GNSS available only
-for the comparison card and never feeds it into the displayed prediction.
+The first run requires location permission. Current, valid Android fixes up to
+100 m accuracy keep navigation available; only fixes at 25 m or better are
+used for sensitive aiding/calibration. A repeated stationary timestamp is
+treated as a healthy stream heartbeat when the position remains plausible.
+The map uses OpenStreetMap tiles, so it requires a network connection;
+navigation prediction continues when GNSS is disabled from Developer Mode. That
+toggle keeps raw physical GNSS available only for the comparison card and never
+feeds it into the displayed prediction.
 
 ## Verify
 

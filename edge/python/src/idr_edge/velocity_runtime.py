@@ -107,12 +107,15 @@ class FixedWindowPreprocessor:
         self.std = np.maximum(np.asarray(metadata["feature_std"], dtype=np.float32), 1e-4)
         self.target_mean = float(metadata["target_mean"])
         self.target_std = float(metadata["target_std"])
+        self.maximum_speed_mps = float(metadata.get("maximum_speed_mps", 45.0))
         if self.mean.shape != (9,) or self.std.shape != (9,):
             raise ValueError("normalization metadata must contain nine feature means and standard deviations")
         if not np.isfinite(self.mean).all() or not np.isfinite(self.std).all():
             raise ValueError("normalization feature statistics must be finite")
         if not math.isfinite(self.target_mean) or not math.isfinite(self.target_std) or self.target_std <= 0.0:
             raise ValueError("normalization target statistics must be finite and have positive standard deviation")
+        if not math.isfinite(self.maximum_speed_mps) or self.maximum_speed_mps <= 0.0:
+            raise ValueError("normalization maximum_speed_mps must be a finite positive value")
 
         self._frames: Deque[TelemetryFrame] = deque()
         self._last_result = PreprocessResult(
@@ -286,11 +289,9 @@ class OnnxVelocityRuntime:
         *,
         expected_input_rate_hz: float = 200.0,
         max_gap_samples: float = 3.0,
-        max_forward_speed_mps: float = 70.0,
+        max_forward_speed_mps: float | None = None,
         session: Any | None = None,
     ) -> None:
-        if max_forward_speed_mps <= 0.0 or not math.isfinite(max_forward_speed_mps):
-            raise ValueError("max_forward_speed_mps must be a finite positive value")
         if session is None:
             if model_path is None:
                 raise ValueError("model_path is required when no ONNX session is supplied")
@@ -299,13 +300,20 @@ class OnnxVelocityRuntime:
             except ImportError as error:  # pragma: no cover - environment dependent
                 raise RuntimeError("Install onnxruntime to execute the edge ONNX graph") from error
             session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-        self._session: Any = session
-        self.max_forward_speed_mps = float(max_forward_speed_mps)
         self.preprocessor = FixedWindowPreprocessor(
             normalizer_path,
             expected_input_rate_hz=expected_input_rate_hz,
             max_gap_samples=max_gap_samples,
         )
+        resolved_speed_ceiling = (
+            self.preprocessor.maximum_speed_mps
+            if max_forward_speed_mps is None
+            else max_forward_speed_mps
+        )
+        if resolved_speed_ceiling <= 0.0 or not math.isfinite(resolved_speed_ceiling):
+            raise ValueError("max_forward_speed_mps must be a finite positive value")
+        self._session: Any = session
+        self.max_forward_speed_mps = float(resolved_speed_ceiling)
         self._last_prediction = EdgePrediction(
             speed_mps=None,
             status=EdgeRuntimeStatus.WARMING_UP,

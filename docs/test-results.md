@@ -2,9 +2,21 @@
 
 This report separates reproducible offline evidence from device and road validation. Results below were rechecked locally on 5 September 2026 unless stated otherwise.
 
+## Current runtime-equivalent artifact
+
+The bundled mobile/edge model was retrained with the same gravity-plus-GNSS
+kinematic yaw preprocessing used by the mobile app. It has a structural 0–45
+m/s output bound, and the live INS filter refuses to use its absolute value as
+a speed reset: only a small, rate-limited change can correct the GNSS-anchored
+accelerometer integration. ONNX/TFLite export parity was verified at 1.19e-7
+and 2.38e-7 normalized units respectively; the edge reference processed about
+2,763 velocity inferences/s while receiving a 200 Hz stream. See
+[the v2 training record](model-training-v2.md) for the corpus, split, and
+recording-disjoint raw-prior result.
+
 ## Held-out IO-VNBD blackout benchmark
 
-Dataset: IO-VNBD `M (Driver B)` subset, 5,000 aligned source rows, 10 Hz replay, 60-second GNSS blackout from 430 s to 490 s. The exported ONNX artifact, normalizer, calibration inputs, and source files are hash-bound in [`metrics.json`](benchmarks/iovnbd-driver-b-stage12/metrics.json).
+Dataset: IO-VNBD `M (Driver B)` subset, 5,000 aligned source rows, 10 Hz replay, 60-second GNSS blackout from 430 s to 490 s. This is a **legacy static-calibration benchmark**. Its model/normalizer, calibration inputs, and source files are hash-bound in [`metrics.json`](benchmarks/iovnbd-driver-b-stage12/metrics.json), but the current v2 artifact deliberately refuses this feature-space mismatch.
 
 | Dataset / window | Method | Distance | Endpoint error | Drift | Position update rate | Result |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
@@ -38,13 +50,13 @@ The small accuracy change is expected: the matcher rejects ambiguous or distant 
 
 | Target | Command / method | Observed result | Target status |
 | --- | --- | --- | --- |
-| ML pipeline | `py -3.13 -m unittest discover -s ml/tests -v` | 17 passed | Passes unit coverage |
-| Edge runtime | `py -3.13 -m unittest discover -s edge/python/tests -v` | 6 passed | Passes unit coverage |
+| ML pipeline | `python -m unittest discover -s ml/tests -v` | 20 passed | Passes unit coverage |
+| Edge runtime | `python -m unittest discover -s edge/python/tests -v` | 6 passed | Passes unit coverage |
 | Flutter analysis | `flutter analyze` | No issues | Passes static analysis |
-| Flutter tests | `flutter test` | 12 passed | Passes unit/widget coverage |
+| Flutter tests | `flutter test` | 19 passed | Passes unit/widget coverage |
 | Android debug package | `flutter build apk --debug` | Built successfully; 213,712,201 bytes | Debug package only |
 | Mobile update rate | 100 ms runtime ticker | Configured for 10 Hz | **Physical measurement pending** |
-| Edge velocity runtime | ONNX Runtime profile while fed a 200 Hz stream | 3,248 inferences/s | Exceeds feed rate for velocity reference; full edge navigation engine pending |
+| Edge velocity runtime | ONNX Runtime profile while fed a 200 Hz stream | 2,763 inferences/s | Exceeds feed rate for velocity reference; full edge navigation engine pending |
 
 The mobile GNSS bootstrap change is covered by analysis, tests, and debug APK compilation. It still needs a final connected-phone check for a real coarse bootstrap fix, an aid-quality fix, and the transition to GNSS-aided state.
 
@@ -67,12 +79,17 @@ The current Android build emits a non-fatal upstream `sensors_plus` Kotlin Gradl
 
 ```powershell
 $env:PYTHONPATH = 'ml/src;edge/python/src'
-py -3.13 -m unittest discover -s ml/tests -v
-py -3.13 -m unittest discover -s edge/python/tests -v
-py -3.13 ml/scripts/stage12_evaluate.py
+python -m unittest discover -s ml/tests -v
+python -m unittest discover -s edge/python/tests -v
+python ml/scripts/stage5_train_robust_velocity.py --epochs 20
+python ml/scripts/stage10_export.py --artifact-dir ml/artifacts/velocity_cnn_robust --training-metrics ml/reports/stage5_robust/metrics.json
 
 cd mobile
 flutter analyze
 flutter test
 flutter build apk --debug
 ```
+
+The Stage 12 command remains available only for the checked-in legacy model;
+the current artifact stops before inference rather than publish an invalid
+comparison.

@@ -61,10 +61,29 @@ def _model_class() -> Any:
     torch = _torch()
 
     class TinyVelocityCNN(torch.nn.Module):
-        """~1.1k parameter causal-free CNN, suitable for on-device export."""
+        """~1.1k parameter bounded CNN, suitable for on-device export.
 
-        def __init__(self, channels: int = 9) -> None:
+        Absolute vehicle speed cannot be negative and MERIDIAN's deployment
+        contract deliberately caps it at 45 m/s. The old linear head could
+        extrapolate to an arbitrary value when a phone's live sensor domain
+        differed from the single training drive. Bounding the network output
+        makes an impossible 55 m/s value structurally unreachable rather than
+        hoping a downstream UI guard catches it.
+        """
+
+        def __init__(
+            self,
+            channels: int = 9,
+            *,
+            target_mean: float = 0.0,
+            target_std: float = 1.0,
+            maximum_speed_mps: float = 45.0,
+        ) -> None:
             super().__init__()
+            if target_std <= 0.0 or maximum_speed_mps <= 0.0:
+                raise ValueError("target_std and maximum_speed_mps must be positive")
+            self.normalized_speed_min = float((0.0 - target_mean) / target_std)
+            self.normalized_speed_max = float((maximum_speed_mps - target_mean) / target_std)
             self.features = torch.nn.Sequential(
                 torch.nn.Conv1d(channels, 16, kernel_size=5, padding=2),
                 torch.nn.ReLU(),
@@ -73,9 +92,24 @@ def _model_class() -> Any:
                 torch.nn.AdaptiveAvgPool1d(1),
             )
             self.head = torch.nn.Linear(16, 1)
+            # A sigmoid-bounded speed head otherwise starts at the middle of
+            # its physical range (22.5 m/s), which is far from the empirical
+            # fleet speed prior and encourages early saturation. Initialise it
+            # at the train-split mean while retaining the hard 0–45 m/s bound.
+            initial_probability = min(
+                max(float(target_mean) / maximum_speed_mps, 1e-4),
+                1.0 - 1e-4,
+            )
+            torch.nn.init.constant_(
+                self.head.bias,
+                float(np.log(initial_probability / (1.0 - initial_probability))),
+            )
 
         def forward(self, values: Any) -> Any:
-            return self.head(self.features(values).squeeze(-1)).squeeze(-1)
+            logits = self.head(self.features(values).squeeze(-1)).squeeze(-1)
+            return self.normalized_speed_min + (
+                self.normalized_speed_max - self.normalized_speed_min
+            ) * torch.sigmoid(logits)
 
     return TinyVelocityCNN
 
@@ -169,7 +203,11 @@ def train_velocity_cnn(
     target_normalized = (target - target_mean) / target_std
 
     Model = _model_class()
-    model = Model(channels=x.shape[1])
+    model = Model(
+        channels=x.shape[1],
+        target_mean=target_mean,
+        target_std=target_std,
+    )
     optimizer = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)
     loss_fn = torch.nn.SmoothL1Loss()
     train_tensor = torch.from_numpy(x[train_idx])
@@ -262,7 +300,13 @@ def _portable_normalization(path: Path) -> dict[str, np.ndarray]:
     target_mean = float(source["target_mean"])
     target_std = float(source["target_std"])
     sample_rate_hz = float(source["sample_rate_hz"])
-    if not np.isfinite([target_mean, target_std, sample_rate_hz]).all() or target_std <= 0 or sample_rate_hz <= 0:
+    maximum_speed_mps = float(source.get("maximum_speed_mps", 45.0))
+    if (
+        not np.isfinite([target_mean, target_std, sample_rate_hz, maximum_speed_mps]).all()
+        or target_std <= 0
+        or sample_rate_hz <= 0
+        or maximum_speed_mps <= 0
+    ):
         raise ValueError("portable velocity normalization target/sample-rate values are invalid")
     return {
         "feature_mean": mean,
@@ -270,6 +314,7 @@ def _portable_normalization(path: Path) -> dict[str, np.ndarray]:
         "target_mean": np.asarray(target_mean, dtype=np.float32),
         "target_std": np.asarray(target_std, dtype=np.float32),
         "sample_rate_hz": np.asarray(sample_rate_hz, dtype=np.float32),
+        "maximum_speed_mps": np.asarray(maximum_speed_mps, dtype=np.float32),
     }
 
 
@@ -321,17 +366,27 @@ def load_portable_onnx_velocity_artifact(
     calibration_provenance = (
         training_provenance.get("calibration") if isinstance(training_provenance, dict) else None
     )
+    legacy_provenance = (
+        isinstance(training_provenance, dict)
+        and isinstance(training_provenance.get("clock_alignment"), dict)
+        and isinstance(calibration_provenance, dict)
+        and isinstance(calibration_provenance.get("calibration_time_end_exclusive_s"), (int, float))
+        and training_provenance.get("calibration_alignment_verified") is True
+    )
+    corpus_provenance = (
+        isinstance(training_provenance, dict)
+        and isinstance(training_provenance.get("training_corpus"), dict)
+        and isinstance(training_provenance.get("preprocessing_contract"), str)
+    )
     if (
         not isinstance(training_provenance, dict)
-        or not isinstance(training_provenance.get("clock_alignment"), dict)
-        or not isinstance(calibration_provenance, dict)
-        or not isinstance(calibration_provenance.get("calibration_time_end_exclusive_s"), (int, float))
-        or training_provenance.get("calibration_alignment_verified") is not True
+        or not (legacy_provenance or corpus_provenance)
         or not isinstance(training_provenance.get("stage5_metrics"), dict)
         or not isinstance(training_provenance.get("trained_artifacts"), dict)
     ):
         raise ValueError(
-            "portable ONNX manifest lacks verified Stage 5 provenance; retrain Stage 5 and re-run Stage 10 export"
+            "portable ONNX manifest lacks verified Stage 5 corpus/calibration provenance; "
+            "retrain Stage 5 and re-run Stage 10 export"
         )
 
     try:
@@ -366,12 +421,16 @@ def load_velocity_artifact(artifact_dir: str | Path) -> tuple[Any, dict[str, np.
     """Load the compact model and preprocessing captured at Stage 5."""
     torch = _torch()
     source = Path(artifact_dir)
-    Model = _model_class()
-    model = Model()
-    model.load_state_dict(torch.load(source / "velocity_cnn.pt", map_location="cpu", weights_only=True))
-    model.eval()
     with np.load(source / "normalization.npz") as data:
         normalization = {key: data[key] for key in data.files}
+    Model = _model_class()
+    model = Model(
+        target_mean=float(normalization["target_mean"]),
+        target_std=float(normalization["target_std"]),
+        maximum_speed_mps=float(normalization.get("maximum_speed_mps", 45.0)),
+    )
+    model.load_state_dict(torch.load(source / "velocity_cnn.pt", map_location="cpu", weights_only=True))
+    model.eval()
     return model, normalization
 
 

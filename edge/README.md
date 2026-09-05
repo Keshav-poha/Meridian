@@ -40,8 +40,8 @@ frame count, optional detected gap, and a 0–1 **input-integrity confidence**.
 That confidence is not an ML accuracy or navigation confidence: it only means
 that the input window was continuous and the ONNX output was physically
 bounded. Small negative forward-speed estimates are clamped to zero with a
-degraded status; values below -3 m/s or above the configurable 70 m/s ceiling
-are rejected rather than silently passed to fusion. The legacy
+degraded status; values below -3 m/s or above the model's 45 m/s deployment
+ceiling are rejected rather than silently passed to fusion. The legacy
 `OnnxVelocityRuntime.ingest(frame) -> float | None` API is preserved.
 
 This remains a velocity-inference reference runtime, not a complete FOG-grade

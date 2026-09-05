@@ -1,14 +1,18 @@
 # Stage 12 — reproducible IO-VNBD evaluation
 
-This folder is MERIDIAN's current offline position-inference deliverable. It
-evaluates the tracked, portable ONNX model rather than an ignored local
-checkpoint. It is evidence for one held-out IO-VNBD replay, not a claim that
-the mobile app is ready for unsupervised road use.
+This folder preserves MERIDIAN's **legacy static-calibration** offline
+position-inference deliverable. It evaluated the portable ONNX model bundled
+when these files were generated. The current runtime-equivalent model uses a
+different gravity + GNSS-kinematic yaw transform and deliberately refuses this
+replay rather than silently mix feature spaces. These files are historical
+evidence for one IO-VNBD replay, not a claim that the current mobile app is
+ready for unsupervised road use.
 
 ## Reproduction
 
 With the public IO-VNBD `M (Driver B)` phone/vehicle CSV pair in
-`ml/data/raw/iovnbd_m/`, run the complete provenance-preserving sequence:
+`ml/data/raw/iovnbd_m/`, check out a pre-v2 repository revision and run the
+complete provenance-preserving sequence:
 
 ```powershell
 $env:PYTHONPATH = 'ml/src;edge/python/src'
@@ -18,11 +22,13 @@ py -3.13 ml/scripts/stage10_export.py
 py -3.13 ml/scripts/stage12_evaluate.py
 ```
 
-The pipeline rejects a stale/mixed export, a mismatched clock offset, a
-calibration without an exclusive end boundary, or a calibration extending
-into the held-out blackout. It also refuses windows that interpolate across a
-source gap and purges 1.8 seconds of overlapping sliding windows around each
-training split boundary.
+At the current revision, `stage12_evaluate.py` stops before inference for the
+v2 artifact because Driver B fails its kinematic-mount quality gate. The
+pipeline otherwise rejects a stale/mixed export, a mismatched clock offset, a
+calibration without an exclusive end boundary, or a calibration extending into
+the held-out blackout. It also refuses windows that interpolate across a source
+gap and purges 1.8 seconds of overlapping sliding windows around each training
+split boundary.
 
 ## Current held-out replay
 

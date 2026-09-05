@@ -120,6 +120,18 @@ def main() -> None:
         args.normalization,
         args.model_manifest,
     )
+    # This historical Driver B replay uses the older static-calibration
+    # preprocessor. The current deployable artifact intentionally uses the
+    # mobile-equivalent gravity + GNSS-kinematic yaw path and Driver B fails
+    # that path's mount-quality gate. Refuse a silent feature-space mismatch
+    # instead of publishing a plausible but invalid position plot.
+    if "preprocessing_contract" in portable_artifact.training_provenance:
+        raise RuntimeError(
+            "Stage 12 Driver B replay is a legacy static-calibration benchmark and "
+            "cannot evaluate the current runtime-equivalent kinematic model. "
+            "Use the recording-disjoint Stage 5 report and a fixed-mount field drive "
+            "for the current artifact."
+        )
     residual = estimate_adaptive_residual(history, calibration, model, normalization)
 
     classical = classical_nhc_dead_reckoning(

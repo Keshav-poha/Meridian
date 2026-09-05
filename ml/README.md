@@ -1,6 +1,6 @@
 # ML and replay pipeline
 
-`idr_ml` owns IO-VNBD ingestion, timestamp synchronization, mount calibration, velocity training, offline replay, model export, and reproducible evaluation. Shared input/output contracts live in [`../shared`](../shared).
+`idr_ml` owns IO-VNBD/STRIDE ingestion, timestamp synchronization, mount calibration, velocity training, offline replay, model export, and reproducible evaluation. Shared input/output contracts live in [`../shared`](../shared).
 
 ## Environment
 
@@ -17,30 +17,36 @@ python -m idr_ml.validate_contract
 
 Raw datasets, checkpoints, reports, and local package caches are intentionally ignored by Git.
 
-## Reproducible Driver B sequence
+## Current runtime-equivalent model
 
-Fetch the public `M (Driver B)` smartphone/vehicle pair, then run the stages below from the repository root:
-
-```powershell
-python ml/scripts/fetch_iovnbd_subset.py
-python ml/scripts/stage2_ingest.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
-python ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
-python ml/scripts/stage4_baseline_dr.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
-python ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
-python ml/scripts/stage6_learned_velocity_dr.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
-python ml/scripts/stage7_map_match.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
-python ml/scripts/stage8_fusion.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
-python ml/scripts/stage10_export.py
-python ml/scripts/stage12_evaluate.py
-```
-
-Stage 10 needs TensorFlow in addition to `ml/requirements.txt` when TFLite export is required:
+Download the public IO-VNBD recordings and the STRIDE driving data described in
+[`../docs/model-training-v2.md`](../docs/model-training-v2.md), then run the
+current training/export stages from the repository root:
 
 ```powershell
-python -m pip install tensorflow
+$env:PYTHONPATH = "$PWD\ml\src;$PWD\edge\python\src"
+python ml/scripts/stage5_train_robust_velocity.py --epochs 20
+python ml/scripts/stage10_export.py --artifact-dir ml/artifacts/velocity_cnn_robust --training-metrics ml/reports/stage5_robust/metrics.json
 ```
 
-Stage 12 evaluates the tracked portable ONNX artifact rather than a local checkpoint. It writes the held-out position plot, metrics, and trajectory to [`../docs/benchmarks/iovnbd-driver-b-stage12/`](../docs/benchmarks/iovnbd-driver-b-stage12/) and exits non-zero if the offline drift threshold cannot be evaluated or is missed.
+The Stage 5 model is a bounded velocity prior, not a standalone absolute-speed
+replacement. At runtime its changes are fused into the GNSS-anchored inertial
+state. The stage records a raw-prior baseline comparison but does not allow a
+raw model value to reset navigation speed.
+
+Stage 10 needs TensorFlow and ONNX in addition to `ml/requirements.txt` when TFLite/ONNX export is required:
+
+```powershell
+python -m pip install tensorflow onnx
+```
+
+## Legacy Driver B position replay
+
+The tracked Stage 12 position plot uses the earlier static-calibration model.
+The current artifact uses mobile-equivalent GNSS-kinematic yaw and intentionally
+rejects that replay rather than run with mismatched preprocessing. See
+[`../docs/model-training-v2.md`](../docs/model-training-v2.md) for the current
+artifact and use a fixed-mount field drive for its position validation.
 
 ## Field-drive evaluation
 

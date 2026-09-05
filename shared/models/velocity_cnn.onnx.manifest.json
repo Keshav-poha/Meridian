@@ -5,7 +5,11 @@
   "output": {
     "name": "forward_speed_normalized",
     "unit": "z_score",
-    "de_normalized_unit": "mps"
+    "de_normalized_unit": "mps",
+    "bounds_mps": [
+      0.0,
+      45.0
+    ]
   },
   "normalization": {
     "file": "velocity_cnn.normalization.json",
@@ -13,72 +17,253 @@
   },
   "training_parameter_count": 961,
   "training_provenance": {
-    "clock_alignment": {
-      "method": "gnss_speed_cross_correlation",
-      "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
-      "speed_correlation": 0.9802741273880347,
-      "zero_offset_speed_correlation": 0.9509513557718806,
-      "correlation_improvement": 0.029322771616154042,
-      "median_absolute_speed_error_mps": 0.2727777777822116,
-      "matched_samples": 4961,
-      "candidate_offsets_tested": 201,
-      "validation_passed": true
+    "preprocessing_contract": "runtime_equivalent_kinematic_vehicle_frame_v2",
+    "training_corpus": {
+      "sources": [
+        {
+          "dataset": "IO-VNBD",
+          "group": "iovnbd_driver_b",
+          "phone": {
+            "path": "ml\\data\\raw\\iovnbd_m\\S-M.csv",
+            "sha256": "26a1ee080da4db98e175e15d6fec631e6f8c285c13817d9d74ecc90ed280d103",
+            "bytes": 19798721
+          },
+          "vehicle": {
+            "path": "ml\\data\\raw\\iovnbd_m\\V-M.csv",
+            "sha256": "ecf977cb798082d59ad1b03ce5631a61dbf525dfe484eb005ca630b5e95b86af",
+            "bytes": 22507823
+          },
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
+            "speed_correlation": 0.9802741273880347,
+            "zero_offset_speed_correlation": 0.9509513557718806,
+            "correlation_improvement": 0.029322771616154042,
+            "median_absolute_speed_error_mps": 0.2727777777822116,
+            "matched_samples": 4961,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          }
+        },
+        {
+          "dataset": "IO-VNBD",
+          "group": "iovnbd_driver_a_s1",
+          "phone": {
+            "path": "ml\\data\\raw\\iovnbd_multidrive\\driver_a_s1_phone.csv",
+            "sha256": "e79a2eea18143b825438f9a11c7d724a97c9e18329776defd4d9291d03d4aaca",
+            "bytes": 9631499
+          },
+          "vehicle": {
+            "path": "ml\\data\\raw\\iovnbd_multidrive\\driver_a_s1_vehicle.csv",
+            "sha256": "29e92ed9bcb2d711e651246675c435b3f9499c040cfcad367624e8720c0dc891",
+            "bytes": 10967129
+          },
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -4.3,
+            "speed_correlation": 0.9316621611987551,
+            "zero_offset_speed_correlation": 0.8365560263024813,
+            "correlation_improvement": 0.09510613489627384,
+            "median_absolute_speed_error_mps": 0.6008333333340038,
+            "matched_samples": 51702,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          }
+        },
+        {
+          "dataset": "IO-VNBD",
+          "group": "iovnbd_driver_a_s3a",
+          "phone": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3a\\S-S3a.csv",
+            "sha256": "b9e45dc8d856271f0a69030b7dd98f32c6b6b88b627138d67e8d3a1b7c5329fe",
+            "bytes": 4580130
+          },
+          "vehicle": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3a\\V-S3a.csv",
+            "sha256": "1cac1c8045c4f85423f01425881dd7e6814ae167100590c988a5ef141eb9e73f",
+            "bytes": 5286764
+          },
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -10.0,
+            "speed_correlation": 0.9616901115345187,
+            "zero_offset_speed_correlation": 0.7604325074573941,
+            "correlation_improvement": 0.20125760407712456,
+            "median_absolute_speed_error_mps": 0.5394444444441628,
+            "matched_samples": 24520,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          }
+        },
+        {
+          "dataset": "IO-VNBD",
+          "group": "iovnbd_driver_a_s3b",
+          "phone": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3b\\S-S3b.csv",
+            "sha256": "19447009a96bd80bb896f3a728283ae2990d94b4cf1ed37f69866ed78ca36901",
+            "bytes": 1253565
+          },
+          "vehicle": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3b\\V-S3b.csv",
+            "sha256": "d44d29d46b7c46c574cdc90d5633cc90ac1b9cee57fb7f6b90d865aecc14ff64",
+            "bytes": 1464196
+          },
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.8,
+            "speed_correlation": 0.8708054182398922,
+            "zero_offset_speed_correlation": 0.676560730298984,
+            "correlation_improvement": 0.1942446879409082,
+            "median_absolute_speed_error_mps": 0.9127777777764035,
+            "matched_samples": 2005,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          }
+        },
+        {
+          "dataset": "IO-VNBD",
+          "group": "iovnbd_driver_a_s3c",
+          "phone": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3c\\S-S3c.csv",
+            "sha256": "b87fa6978d7d50087ca63bfee5230692013485aaccef5474dbc847a9c1498739",
+            "bytes": 6881631
+          },
+          "vehicle": {
+            "path": "ml\\data\\raw\\iovnbd_official\\Synchronised V abd S datasets\\Categorised IOVNB Dataset\\S (Driver A)\\S3c\\V-S3c.csv",
+            "sha256": "d7a98f02899d331265eb0b892e44d343892ad6ec9dcb1e90ce6c6f80b264c0f3",
+            "bytes": 7976092
+          },
+          "clock_alignment": {
+            "method": "gnss_speed_cross_correlation",
+            "vehicle_time_s_equals_phone_time_s_plus_offset_s": -4.2,
+            "speed_correlation": 0.9834975250152299,
+            "zero_offset_speed_correlation": 0.9588129771034342,
+            "correlation_improvement": 0.02468454791179575,
+            "median_absolute_speed_error_mps": 0.47455555555677,
+            "matched_samples": 37140,
+            "candidate_offsets_tested": 201,
+            "validation_passed": true
+          }
+        },
+        {
+          "dataset": "STRIDE",
+          "group": "stride_1_aggressive",
+          "session": "ml\\data\\raw\\stride\\extracted\\Road Data\\Driving Behaviour\\1. Aggressive",
+          "accelerometer": {
+            "path": "ml\\data\\raw\\stride\\extracted\\Road Data\\Driving Behaviour\\1. Aggressive\\Accelerometer.csv",
+            "sha256": "5e8d3bbc44422e7823a770c13a821ccc0dfee7cadcfc516ef1687f80d217b5c2",
+            "bytes": 3645821
+          },
+          "gyroscope": {
+            "path": "ml\\data\\raw\\stride\\extracted\\Road Data\\Driving Behaviour\\1. Aggressive\\Gyroscope.csv",
+            "sha256": "075e542a296404b589218306a90b5145a598d59ea4c46556af6988e11e550500",
+            "bytes": 3793588
+          },
+          "magnetometer": {
+            "path": "ml\\data\\raw\\stride\\extracted\\Road Data\\Driving Behaviour\\1. Aggressive\\Magnetometer.csv",
+            "sha256": "d0e213aa5c9bbc186c0003548623029c80109774cfe9204f52a1311db777dd2c",
+            "bytes": 3468702
+          },
+          "location": {
+            "path": "ml\\data\\raw\\stride\\extracted\\Road Data\\Driving Behaviour\\1. Aggressive\\Location.csv",
+            "sha256": "c75604e7aaa28e3713aa91d90c286fc02b9e66b6aadf9e0ccdd41f21c1d5db71",
+            "bytes": 67165
+          },
+          "speed_label": "smartphone_gnss_speed_mps"
+        }
+      ],
+      "records": [
+        {
+          "name": "iovnbd_driver_b",
+          "accepted": false,
+          "rejection_reason": "kinematic yaw agreement 0.12 is below the 0.20 mobile-calibration limit"
+        },
+        {
+          "name": "iovnbd_driver_a_s1",
+          "accepted": true,
+          "windows": 25842,
+          "kinematic_mount_alignment": {
+            "yaw_rad": -1.8874690514023247,
+            "turning_samples": 2533,
+            "dynamic_turn_correlation": 0.4291104654874706,
+            "heading_coverage_deg": 179.99999999996632
+          }
+        },
+        {
+          "name": "iovnbd_driver_a_s3a",
+          "accepted": true,
+          "windows": 12251,
+          "kinematic_mount_alignment": {
+            "yaw_rad": -1.6479848929213958,
+            "turning_samples": 1104,
+            "dynamic_turn_correlation": 0.40098906343647023,
+            "heading_coverage_deg": 179.99999999992733
+          }
+        },
+        {
+          "name": "iovnbd_driver_a_s3b",
+          "accepted": true,
+          "windows": 993,
+          "kinematic_mount_alignment": {
+            "yaw_rad": -1.4900846291257082,
+            "turning_samples": 103,
+            "dynamic_turn_correlation": 0.3145529230082172,
+            "heading_coverage_deg": 179.995999999543
+          }
+        },
+        {
+          "name": "iovnbd_driver_a_s3c",
+          "accepted": true,
+          "windows": 18561,
+          "kinematic_mount_alignment": {
+            "yaw_rad": -1.562634355530997,
+            "turning_samples": 1993,
+            "dynamic_turn_correlation": 0.38795855415328945,
+            "heading_coverage_deg": 179.99999999996896
+          }
+        },
+        {
+          "name": "stride_1_aggressive",
+          "accepted": true,
+          "windows": 1858,
+          "kinematic_mount_alignment": {
+            "yaw_rad": 1.7186644097248065,
+            "turning_samples": 136,
+            "dynamic_turn_correlation": 0.21868853665491883,
+            "heading_coverage_deg": 92.46568791264207
+          }
+        }
+      ],
+      "validation_groups": [
+        "iovnbd_driver_a_s3b"
+      ],
+      "test_groups": [
+        "iovnbd_driver_a_s3c"
+      ],
+      "max_windows_per_group": 6000,
+      "minimum_turn_correlation": 0.2,
+      "excluded_training_groups": [],
+      "note": "IO-VNBD vehicle telemetry is the primary speed reference. STRIDE smartphone GNSS speed is secondary domain-supervision only. Splits are recording-disjoint; they do not claim a fleet-scale evaluation."
     },
-    "smartphone_gnss_speed_unit": "mps",
-    "clock_offset_override_s": null,
-    "max_rows": 5000,
-    "max_interpolation_gap_s": 0.25,
-    "smartphone_source": {
-      "path": "ml\\data\\raw\\iovnbd_m\\S-M.csv",
-      "sha256": "26a1ee080da4db98e175e15d6fec631e6f8c285c13817d9d74ecc90ed280d103",
-      "bytes": 19798721
-    },
-    "vehicle_source": {
-      "path": "ml\\data\\raw\\iovnbd_m\\V-M.csv",
-      "sha256": "ecf977cb798082d59ad1b03ce5631a61dbf525dfe484eb005ca630b5e95b86af",
-      "bytes": 22507823
-    },
-    "calibration_artifact": {
-      "path": "ml\\reports\\stage3\\calibration.json",
-      "sha256": "36e0af9c4119b425333e657d8aa75e44a3e59525eae612305b485eb0b39ea12a",
-      "bytes": 1452
-    },
-    "calibration": {
-      "clock_alignment": {
-        "method": "gnss_speed_cross_correlation",
-        "vehicle_time_s_equals_phone_time_s_plus_offset_s": -3.9,
-        "speed_correlation": 0.9802741273880347,
-        "zero_offset_speed_correlation": 0.9509513557718806,
-        "correlation_improvement": 0.029322771616154042,
-        "median_absolute_speed_error_mps": 0.2727777777822116,
-        "matched_samples": 4961,
-        "candidate_offsets_tested": 201,
-        "validation_passed": true
-      },
-      "max_interpolation_gap_s": 0.25,
-      "smartphone_gnss_speed_unit": "mps",
-      "clock_offset_override_s": null,
-      "max_rows": 5000,
-      "calibration_samples": 4261,
-      "calibration_time_start_s": 3.9,
-      "calibration_time_end_exclusive_s": 430.0
-    },
-    "calibration_alignment_verified": true,
+    "output_bounds_mps": [
+      0.0,
+      45.0
+    ],
     "stage5_metrics": {
-      "path": "ml\\reports\\stage5\\metrics.json",
-      "sha256": "4472b1c66d73d4ac00762f7325670e208db03e6e65e5b8297023af23722f958d",
-      "bytes": 2908
+      "path": "ml\\reports\\stage5_robust\\metrics.json",
+      "sha256": "9611d6ca5a08d0c8bc3dc0222d6c8c6ffd64a88f3e690ed0a30870f1c22af464",
+      "bytes": 11526
     },
     "trained_artifacts": {
       "model": {
-        "path": "ml\\artifacts\\velocity_cnn\\velocity_cnn.pt",
-        "sha256": "e8d6423fef37343ef2dd89e709887e892c83ed05265ea1f59302cfeb28f8b4c5",
+        "path": "ml\\artifacts\\velocity_cnn_robust\\velocity_cnn.pt",
+        "sha256": "63e66b02871b7c7cc34330731fbeb55bae8ff257c33aa37160985186973e3d15",
         "bytes": 7057
       },
       "normalization": {
-        "path": "ml\\artifacts\\velocity_cnn\\normalization.npz",
-        "sha256": "9a269d6fd9b0a136ceed08b351dc5319c8290186cef951c49362fc8fa2ccca86",
-        "bytes": 1382
+        "path": "ml\\artifacts\\velocity_cnn_robust\\normalization.npz",
+        "sha256": "5cabc1fb2ad243f55b8f0860d41a2f3acd2fcdc3ed0c74d117a63acdf356e4a9",
+        "bytes": 1652
       }
     }
   },
@@ -104,8 +289,8 @@
     "layout": "batch_channel_time"
   },
   "artifact_sha256": {
-    "model": "78abd208d418c8bd6b7e7b47cf75c580f6a129f3d58551cc51787be2ec3076e6",
-    "normalization": "9a34960603207466bc54a7f92d175a07d17f39c89bf8f96f0449176e039e0960",
+    "model": "423d3a1709a8c3778f2d59588ecb894e499c8b81c662f836e63a9991a304bd4d",
+    "normalization": "bfd698519098aee1f8a760b30bb48a1fc6b2ff992a911bb862dfbddbcbba34a0",
     "feature_spec": "294a296a4f653c3bbefd8c8d62220aa6348fce369a4d73b8fbb9e9f835979a41"
   }
 }

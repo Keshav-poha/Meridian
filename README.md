@@ -8,16 +8,16 @@ MERIDIAN addresses Smart India Hackathon problem statement **26168**: “AI-ML b
 
 ## What we built
 
-MERIDIAN is a reproducible IO-VNBD replay and deployment pipeline. It synchronizes phone and vehicle records, learns scalar forward speed from calibrated IMU windows, integrates that speed and vehicle-frame yaw with a non-holonomic constraint, and exposes the same model contract to a Flutter app and an ONNX Runtime edge reference. The mobile app includes a navigation view, GNSS outage simulator, Developer Mode telemetry, confidence reporting, and a real-drive recorder.
+MERIDIAN is a reproducible IMU/GNSS replay and deployment pipeline. It synchronizes phone and vehicle records, learns a bounded velocity prior from gravity-compensated vehicle-frame IMU windows, anchors the live speed state to GNSS, and exposes the same model contract to a Flutter app and an ONNX Runtime edge reference. The mobile app includes a navigation view, GNSS outage simulator, Developer Mode telemetry, confidence reporting, and a real-drive recorder.
 
 ## Core features
 
 | Problem-statement feature | Implementation and current boundary |
 | --- | --- |
 | In-vehicle mount calibration | Gravity-vector leveling estimates pitch/roll; turn kinematics and reliable GNSS course resolve mount yaw. Offline validation is complete; fixed-mount road validation remains pending. |
-| AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN estimates forward speed from 2-second, 9-channel vehicle-frame IMU windows. Motion, shock, mount, freshness, and input-distribution gates block unsafe output; no OBD-II input is used. |
+| AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN uses 2-second, 9-channel vehicle-frame IMU windows. Its output is structurally bounded to 0–45 m/s and is used only as a rate-limited change-of-velocity residual inside a GNSS-anchored inertial state; no OBD-II input is used. |
 | Map matching with non-holonomic constraints | Forward-only NHC integration is implemented. A fail-closed OSM HMM/Viterbi matcher is validated offline; it is not yet wired into the mobile or edge runtime. |
-| GNSS + INS fusion | A guarded adaptive residual replay handles masked GNSS offline. A live quality-aware EKF/UKF measurement-update implementation is still pending. |
+| GNSS + INS fusion | The live runtime keeps Flutter's best-for-navigation Android stream as the primary source, accepts valid degraded navigation fixes separately from tighter aiding fixes, and anchors INS speed to measured GNSS before a blackout. A live EKF/UKF measurement-update implementation is still pending. |
 | Seamless GNSS-loss/reacquisition switching | Mobile transitions between GNSS-aided, DR, and a 500 ms reacquisition blend, requiring a fresh post-loss fix before recovery. Physical moving-drive latency measurement is pending. |
 | Real-time navigation UI | Flutter/Dart MERIDIAN provides the required splash, map, route controls, GPS-lost state, Developer Mode, and More screens. |
 | Edge-deployable engine | The shared model exports to TFLite and ONNX. The Python ONNX Runtime reference accepts 100/200 Hz streams; the C++ project is an integration seam, not yet a full edge navigation engine. |
@@ -29,11 +29,11 @@ MERIDIAN is a reproducible IO-VNBD replay and deployment pipeline. It synchroniz
 - Developer Mode shows real sensor axes, raw physical GNSS, accepted/predicted positions, drift/error fields, confidence, and a trip recorder for field validation.
 - The replay pipeline guards against timestamp alignment mistakes, source gaps, calibration leakage, mixed model artifacts, and overlapping train/test windows.
 - Negative-motion collection and preparation tooling exists for parked/idle, bump, handheld-shake, and mount-shift captures. Those examples have **not** yet been collected across devices or used to retrain the model.
-- Only the IO-VNBD Driver B subset has been used for model evaluation. No second open dataset is claimed.
+- The current runtime-equivalent model is trained from quality-audited IO-VNBD Driver A recordings plus one separate STRIDE phone-domain session. The old Driver B replay is preserved as a legacy benchmark only because that record fails the v2 kinematic-mount quality gate.
 
-## Benchmark results
+## Legacy benchmark results
 
-The tracked held-out replay masks GNSS for 60 seconds in the IO-VNBD Driver B subset. It uses a corrected −3.9 s phone-to-vehicle clock fit, pre-blackout-only calibration, and no ground-truth columns during blackout propagation.
+The tracked held-out replay masks GNSS for 60 seconds in the IO-VNBD Driver B subset. It uses a corrected −3.9 s phone-to-vehicle clock fit, pre-blackout-only calibration, and no ground-truth columns during blackout propagation. It belongs to the earlier static-calibration artifact and must not be used as an accuracy claim for the current runtime-equivalent model; the evaluator now refuses to mix those feature spaces.
 
 | Method | Distance | Endpoint error | Drift | Update rate |
 | --- | ---: | ---: | ---: | ---: |
@@ -41,7 +41,7 @@ The tracked held-out replay masks GNSS for 60 seconds in the IO-VNBD Driver B su
 | Learned-speed NHC | 689.81 m | 54.71 m | 7.93% | 10 Hz |
 | Guarded masked-GNSS replay | 689.81 m | 54.71 m | **7.93%** | 10 Hz |
 
-The `<10%` target passes for this offline segment. The required position plot, CSV, JSON metrics, and trajectory are in [the benchmark deliverable](docs/benchmarks/iovnbd-driver-b-stage12/README.md). A fixed-mount real-car blackout, mobile update-rate measurement, and physical transition-latency measurement are still required; the offline result must not be treated as a road-use claim.
+The `<10%` target passed for that legacy offline segment. The required position plot, CSV, JSON metrics, and trajectory are in [the benchmark deliverable](docs/benchmarks/iovnbd-driver-b-stage12/README.md). See [the v2 training record](docs/model-training-v2.md) for the deployed artifact's data, bounds, and candid recording-disjoint speed result. A fixed-mount real-car blackout, mobile update-rate measurement, and physical transition-latency measurement are still required; no offline result should be treated as a road-use claim.
 
 See [detailed test results](docs/test-results.md), [the technical approach](docs/technical-approach.md), and [the compliance matrix](docs/compliance-matrix.md).
 
@@ -75,6 +75,7 @@ flowchart LR
 ## Datasets and map data
 
 - [IO-VNBD](https://github.com/onyekpeu/IO-VNBD) — public phone/vehicle records used for timestamp synchronization, mount calibration, velocity training, and the tracked Driver B replay. Raw data is downloaded locally and is not committed.
+- [STRIDE](https://doi.org/10.6084/m9.figshare.25460755.v4) — CC BY 4.0 smartphone road-safety recordings used as secondary training-domain supervision for the v2 velocity model. Raw data is downloaded locally and is not committed.
 - [OpenStreetMap](https://www.openstreetmap.org/copyright) — road-map source used by the offline matcher and mobile map tiles. The app must retain visible OpenStreetMap attribution in public/demo builds.
 
 See [third-party notices](docs/third-party-notices.md) for upstream data, map, and dependency attribution boundaries.
@@ -123,12 +124,11 @@ python -m pip install -r ml/requirements.txt
 $env:PYTHONPATH = "$PWD\ml\src;$PWD\edge\python\src"
 python ml/scripts/fetch_iovnbd_subset.py
 python ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
-python ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
-python ml/scripts/stage10_export.py
-python ml/scripts/stage12_evaluate.py
+python ml/scripts/stage5_train_robust_velocity.py --epochs 20
+python ml/scripts/stage10_export.py --artifact-dir ml/artifacts/velocity_cnn_robust --training-metrics ml/reports/stage5_robust/metrics.json
 ```
 
-Stage 12 writes the reproducible offline deliverable to `docs/benchmarks/iovnbd-driver-b-stage12/` by default.
+The legacy Stage 12 Driver B evaluator is intentionally incompatible with the current runtime-equivalent model to prevent a silent preprocessing mismatch. Use the v2 training record and a fixed-mount field drive for current-artifact validation.
 
 ### Edge reference runtime
 

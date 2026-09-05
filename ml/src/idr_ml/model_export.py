@@ -42,13 +42,16 @@ def _tensorflow() -> Any:
 
 def _portable_normalization(normalization: dict[str, np.ndarray]) -> dict[str, Any]:
     """Make the NPZ values consumable from Dart, C++, and Python."""
-    return {
+    portable = {
         "feature_mean": np.asarray(normalization["feature_mean"], dtype=np.float32).tolist(),
         "feature_std": np.asarray(normalization["feature_std"], dtype=np.float32).tolist(),
         "target_mean": float(np.asarray(normalization["target_mean"])),
         "target_std": float(np.asarray(normalization["target_std"])),
         "sample_rate_hz": float(np.asarray(normalization["sample_rate_hz"])),
     }
+    if "maximum_speed_mps" in normalization:
+        portable["maximum_speed_mps"] = float(np.asarray(normalization["maximum_speed_mps"]))
+    return portable
 
 
 def write_portable_metadata(
@@ -62,14 +65,20 @@ def write_portable_metadata(
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     calibration = training_provenance.get("calibration")
-    if (
-        not isinstance(training_provenance.get("clock_alignment"), dict)
-        or not isinstance(calibration, dict)
-        or training_provenance.get("calibration_alignment_verified") is not True
-        or not isinstance(calibration.get("calibration_time_end_exclusive_s"), (int, float))
-    ):
+    legacy_provenance = (
+        isinstance(training_provenance.get("clock_alignment"), dict)
+        and isinstance(calibration, dict)
+        and training_provenance.get("calibration_alignment_verified") is True
+        and isinstance(calibration.get("calibration_time_end_exclusive_s"), (int, float))
+    )
+    corpus_provenance = (
+        isinstance(training_provenance.get("training_corpus"), dict)
+        and isinstance(training_provenance.get("preprocessing_contract"), str)
+    )
+    if not legacy_provenance and not corpus_provenance:
         raise ValueError(
-            "training provenance must include a verified clock alignment and time-bounded calibration"
+            "training provenance must include either verified single-drive calibration "
+            "or a documented multi-drive training corpus"
         )
     try:
         json.dumps(training_provenance)
@@ -87,6 +96,7 @@ def write_portable_metadata(
         "output": {
             "name": "forward_speed_normalized",
             "unit": "z_score", "de_normalized_unit": "mps",
+            "bounds_mps": [0.0, float(portable.get("maximum_speed_mps", 45.0))],
         },
         "normalization": {
             "file": "velocity_cnn.normalization.json",
@@ -160,7 +170,16 @@ def _build_tflite_equivalent(model: Any) -> Any:
     first = tf.keras.layers.Conv1D(16, 5, padding="same", activation="relu", name="conv_1")(input_values)
     second = tf.keras.layers.Conv1D(16, 3, padding="same", activation="relu", name="conv_2")(first)
     pooled = tf.keras.layers.GlobalAveragePooling1D(name="temporal_average")(second)
-    output = tf.keras.layers.Dense(1, name="forward_speed_normalized")(pooled)
+    logits = tf.keras.layers.Dense(1, name="speed_logits")(pooled)
+    # Keep the deployment graph mathematically identical to TinyVelocityCNN:
+    # the model emits a normalized value, but its de-normalized speed can never
+    # leave the physical 0–45 m/s contract.
+    output = tf.keras.layers.Lambda(
+        lambda values: model.normalized_speed_min
+        + (model.normalized_speed_max - model.normalized_speed_min)
+        * tf.math.sigmoid(values),
+        name="forward_speed_normalized",
+    )(logits)
     keras_model = tf.keras.Model(input_values, output, name="tiny_velocity_cnn")
     first_kernel = np.transpose(state["features.0.weight"], (2, 1, 0))
     second_kernel = np.zeros((3, 16, 16), dtype=np.float32)
@@ -171,7 +190,7 @@ def _build_tflite_equivalent(model: Any) -> Any:
             grouped_weight[start:start + 4], (2, 1, 0))
     keras_model.get_layer("conv_1").set_weights([first_kernel, state["features.0.bias"]])
     keras_model.get_layer("conv_2").set_weights([second_kernel, state["features.2.bias"]])
-    keras_model.get_layer("forward_speed_normalized").set_weights([
+    keras_model.get_layer("speed_logits").set_weights([
         state["head.weight"].T, state["head.bias"],
     ])
     return keras_model

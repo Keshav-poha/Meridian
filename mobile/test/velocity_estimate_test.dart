@@ -13,6 +13,7 @@ void main() {
       motionAnomaly: false,
       sensorsFresh: true,
       vehicleYawRateRps: 0,
+      forwardAccelerationMps2: 0,
     );
 
     expect(estimate.hasPlausibleSpeed, isFalse);

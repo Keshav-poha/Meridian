@@ -721,7 +721,7 @@ class _RawSensorData extends StatelessWidget {
                 : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
                     '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
                     '${!snapshot!.mountCalibrated ? 'Mount calibration: awaiting fixed mount + GNSS course' : snapshot!.velocityModelTrusted ? 'Velocity CNN input: calibrated and in distribution' : 'Velocity CNN input: rejected — device/model mismatch'}\n'
-                    'Velocity CNN: $modelSpeedText  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
+                    'CNN prior (diagnostic): $modelSpeedText  •  GNSS-anchored INS: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
           ]),
         ),
         const SizedBox(height: 14),
