@@ -97,11 +97,13 @@ class LiveIdrEngine implements IdrEngine {
         Geolocator.getPositionStream(locationSettings: settings)
             .listen((position) {
       _actualPosition = position;
+      // Keep physical fixes only as Developer Mode ground truth during a
+      // simulated outage; they must not recalibrate the inertial model.
+      if (!_gnssEnabled) return;
       _velocityEstimator?.setGnssReference(
         speedMps: position.speed,
         headingDeg: position.heading,
       );
-      if (!_gnssEnabled) return;
       _headingDegrees = _validHeading(position.heading) ?? _headingDegrees;
       final fix = _LocalPosition(position.latitude, position.longitude);
       _lastAccurate = fix;
