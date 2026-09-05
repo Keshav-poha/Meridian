@@ -1,4 +1,4 @@
 method,distance_travelled_m,end_position_error_m,trajectory_rmse_m,drift_percent,update_rate_hz
 classical_nhc,676.915324,460.842603,225.733879,68.079801,10.000000
-learned_speed_nhc,676.915324,84.553263,35.753780,12.490966,10.000000
-masked_gnss_adaptive_fusion,676.915324,47.347346,36.795018,6.994574,10.000000
+learned_speed_nhc,676.915324,107.894266,42.626027,15.939108,10.000000
+masked_gnss_adaptive_fusion,676.915324,53.498649,35.614747,7.903300,10.000000

@@ -12,6 +12,7 @@ from idr_ml.dead_reckoning import classical_nhc_dead_reckoning, measure_drift
 from idr_ml.map_matching import RoadGraph, RoadSegment, hmm_map_match
 from idr_ml.iovnbd import build_fixed_windows, load_synchronized_pair
 from idr_ml.plotting import write_stage2_sanity_svg, write_trajectory_svg
+from idr_ml.preprocessing import VELOCITY_FEATURE_COLUMNS, calibrated_velocity_features
 
 
 class IOVNBDPipelineTest(unittest.TestCase):
@@ -118,6 +119,26 @@ class IOVNBDPipelineTest(unittest.TestCase):
         metrics = measure_drift(frame, result)
         self.assertLess(metrics.end_position_error_m, 0.01)
         self.assertAlmostEqual(metrics.update_rate_hz, 10.0, places=5)
+
+    def test_velocity_features_remove_gravity_and_rotate_to_vehicle_frame(self) -> None:
+        calibration = CalibrationResult(
+            body_to_vehicle=[[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            roll_rad=0.0, pitch_rad=0.0, yaw_rad=np.pi / 2, heading_sign=1,
+            static_gravity_residual_deg=0.0, compass_heading_rmse_deg=0.0,
+            dynamic_turn_correlation=1.0, dynamic_turn_rmse_mps2=0.0,
+            idle_samples=1, turning_samples=1, static_source="test",
+        )
+        frame = pd.DataFrame({
+            "accel_x_mps2": [3.0], "accel_y_mps2": [4.0], "accel_z_mps2": [12.0],
+            "gravity_x_mps2": [0.0], "gravity_y_mps2": [0.0], "gravity_z_mps2": [10.0],
+            "gyro_x_rps": [1.0], "gyro_y_rps": [2.0], "gyro_z_rps": [3.0],
+            "mag_x_ut": [3.0], "mag_y_ut": [4.0], "mag_z_ut": [0.0],
+        })
+        features = calibrated_velocity_features(frame, calibration)
+        self.assertTrue(np.allclose(
+            features[VELOCITY_FEATURE_COLUMNS].to_numpy(),
+            [[-4.0, 3.0, 2.0, -2.0, 1.0, 3.0, -0.8, 0.6, 0.0]],
+        ))
 
     def test_hmm_map_matching_projects_to_continuous_road(self) -> None:
         graph = RoadGraph(

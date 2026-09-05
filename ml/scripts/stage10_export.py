@@ -29,9 +29,9 @@ def benchmark_edge_runtime(model_path: Path, normalization_path: Path) -> dict[s
         timestamp_s = index / 200.0
         speed = runtime.ingest(TelemetryFrame(
             timestamp_s=timestamp_s,
-            acceleration_mps2=(0.15 * np.sin(timestamp_s), 0.0, 9.81),
-            gyroscope_rps=(0.0, 0.0, 0.02),
-            magnetometer_ut=(22.0, -4.0, 41.0),
+            linear_acceleration_vehicle_mps2=(0.15 * np.sin(timestamp_s), 0.0, 0.0),
+            gyroscope_vehicle_rps=(0.0, 0.0, 0.02),
+            magnetic_direction_vehicle=(0.45, -0.08, 0.89),
         ))
         output_count += speed is not None
     elapsed_s = perf_counter() - start

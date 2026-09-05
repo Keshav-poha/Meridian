@@ -10,6 +10,7 @@ import pandas as pd
 
 from .calibration import CalibrationResult, apply_mount_rotation, wrap_angle
 from .dead_reckoning import DeadReckoningResult
+from .preprocessing import VELOCITY_FEATURE_COLUMNS, calibrated_velocity_features
 from .velocity_model import predict_velocity_cnn
 
 
@@ -25,12 +26,12 @@ class AdaptiveResidual:
         return asdict(self)
 
 
-def _velocity_windows(frame: pd.DataFrame, rate_hz: float) -> tuple[np.ndarray, int]:
-    channels = [
-        "accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "mag_x_ut", "mag_y_ut", "mag_z_ut",
-    ]
+def _velocity_windows(
+    frame: pd.DataFrame, calibration: CalibrationResult, rate_hz: float
+) -> tuple[np.ndarray, int]:
+    features = calibrated_velocity_features(frame, calibration)
     samples = round(2.0 * rate_hz)
-    values = frame[channels].to_numpy(np.float32)
+    values = features[VELOCITY_FEATURE_COLUMNS].to_numpy(np.float32)
     windows = np.stack([values[i - samples + 1 : i + 1] for i in range(samples - 1, len(values))])
     return windows, samples
 
@@ -43,7 +44,7 @@ def estimate_adaptive_residual(
 ) -> AdaptiveResidual:
     """Fit speed/yaw residuals using only GNSS-aided samples before loss."""
     rate = float(np.asarray(normalization["sample_rate_hz"]))
-    windows, offset = _velocity_windows(history, rate)
+    windows, offset = _velocity_windows(history, calibration, rate)
     predicted_speed = predict_velocity_cnn(model, windows, normalization)
     reference_speed = history.gt_speed_mps.to_numpy(float)[offset - 1 :]
     # A local affine fit is unsafe when the model/reference correlation is
@@ -83,7 +84,7 @@ def adaptive_fused_replay(
 ) -> DeadReckoningResult:
     """Propagate the frozen adaptive INS state during a masked GNSS interval."""
     rate = float(np.asarray(normalization["sample_rate_hz"]))
-    windows, offset = _velocity_windows(blackout, rate)
+    windows, offset = _velocity_windows(blackout, calibration, rate)
     predicted_tail = np.maximum(0.0, predict_velocity_cnn(model, windows, normalization))
     speed = np.empty(len(blackout), dtype=float)
     speed[: offset - 1] = float(blackout.gt_speed_mps.iloc[0])

@@ -17,8 +17,8 @@ the recorded evaluation metrics and plot.
 | Method | Travelled | Endpoint error | Drift | Position update rate |
 | --- | ---: | ---: | ---: | ---: |
 | Classical NHC | 676.92 m | 460.84 m | 68.08% | 10 Hz |
-| Learned-speed NHC | 676.92 m | 84.55 m | 12.49% | 10 Hz |
-| Masked-GNSS adaptive fusion | 676.92 m | 47.35 m | **6.99%** | 10 Hz |
+| Learned-speed NHC | 676.92 m | 107.89 m | 15.94% | 10 Hz |
+| Masked-GNSS adaptive fusion | 676.92 m | 53.50 m | **7.90%** | 10 Hz |
 
 The final row passes the required less-than-10-percent dead-reckoning-drift
 benchmark. This is a replay result, not a substitute for the upcoming

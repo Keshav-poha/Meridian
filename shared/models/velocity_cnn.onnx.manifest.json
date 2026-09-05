@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.1.0",
+  "contract_version": "0.2.0",
   "model_name": "tiny_velocity_cnn",
   "model_file": "velocity_cnn.onnx",
   "output": {
@@ -21,15 +21,15 @@
       20
     ],
     "channels": [
-      "accel_x_mps2",
-      "accel_y_mps2",
-      "accel_z_mps2",
-      "gyro_x_rps",
-      "gyro_y_rps",
-      "gyro_z_rps",
-      "mag_x_ut",
-      "mag_y_ut",
-      "mag_z_ut"
+      "linear_accel_forward_mps2",
+      "linear_accel_right_mps2",
+      "linear_accel_down_mps2",
+      "gyro_forward_rps",
+      "gyro_right_rps",
+      "gyro_down_rps",
+      "mag_forward_unit",
+      "mag_right_unit",
+      "mag_down_unit"
     ],
     "layout": "batch_channel_time"
   }

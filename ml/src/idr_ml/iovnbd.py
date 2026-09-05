@@ -189,17 +189,20 @@ def build_fixed_windows(
     window_seconds: float = 2.0,
     stride_seconds: float = 0.2,
     sample_rate_hz: float | None = None,
+    feature_columns: list[str] | None = None,
 ) -> WindowedDataset:
     """Build [window, time, 9-IMU-channel] tensors and labels at window end."""
     rate = sample_rate_hz or float(synchronized.attrs.get("sample_rate_hz", 10.0))
     window_samples, stride_samples = round(window_seconds * rate), round(stride_seconds * rate)
     if window_samples < 2 or stride_samples < 1:
         raise ValueError("window and stride must yield positive sample counts")
-    channels = [
+    channels = feature_columns or [
         "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
         "gyro_x_rps", "gyro_y_rps", "gyro_z_rps",
         "mag_x_ut", "mag_y_ut", "mag_z_ut",
     ]
+    if len(channels) != 9:
+        raise IOVNBDFormatError("velocity windows require exactly nine input channels")
     labels = ["gt_speed_mps", "gt_heading_rad", "gt_latitude_deg", "gt_longitude_deg"]
     missing = set(channels + labels + ["timestamp_s"]).difference(synchronized.columns)
     if missing:

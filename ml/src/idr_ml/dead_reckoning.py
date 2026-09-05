@@ -136,6 +136,7 @@ def learned_velocity_nhc_dead_reckoning(
     the last GNSS-aided speed. Thereafter no GNSS/ground-truth speed is read.
     """
     from .velocity_model import predict_velocity_cnn
+    from .preprocessing import VELOCITY_FEATURE_COLUMNS, calibrated_velocity_features
 
     required = {
         "timestamp_s", "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
@@ -152,12 +153,12 @@ def learned_velocity_nhc_dead_reckoning(
     window_samples = round(2.0 * rate)
     if len(frame) < window_samples:
         raise ValueError("blackout is shorter than one learned-velocity window")
-    channels = [
-        "accel_x_mps2", "accel_y_mps2", "accel_z_mps2",
-        "gyro_x_rps", "gyro_y_rps", "gyro_z_rps", "mag_x_ut", "mag_y_ut", "mag_z_ut",
-    ]
+    features = calibrated_velocity_features(frame, calibration)
     raw_windows = np.stack(
-        [frame.loc[index - window_samples + 1 : index, channels].to_numpy(np.float32) for index in range(window_samples - 1, len(frame))]
+        [
+            features.loc[index - window_samples + 1 : index, VELOCITY_FEATURE_COLUMNS].to_numpy(np.float32)
+            for index in range(window_samples - 1, len(frame))
+        ]
     )
     predicted_tail = np.maximum(0.0, predict_velocity_cnn(model, raw_windows, normalization))
     speed = np.empty(len(frame), dtype=float)

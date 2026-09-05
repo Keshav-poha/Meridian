@@ -17,7 +17,7 @@
   },
   "acceptance": {
     "max_drift_percent": 10.0,
-    "observed_drift_percent": 6.994574377430823,
+    "observed_drift_percent": 7.903299965075186,
     "passes": true
   },
   "metrics": {
@@ -30,16 +30,16 @@
     },
     "learned_speed_nhc": {
       "distance_travelled_m": 676.9153243675794,
-      "end_position_error_m": 84.55326340537749,
-      "trajectory_rmse_m": 35.75377991740459,
-      "drift_percent": 12.49096605758969,
+      "end_position_error_m": 107.89426602645382,
+      "trajectory_rmse_m": 42.626026880703854,
+      "drift_percent": 15.93910820784801,
       "update_rate_hz": 9.999999999997726
     },
     "masked_gnss_adaptive_fusion": {
       "distance_travelled_m": 676.9153243675794,
-      "end_position_error_m": 47.34734583511745,
-      "trajectory_rmse_m": 36.79501843921936,
-      "drift_percent": 6.994574377430823,
+      "end_position_error_m": 53.498648594331485,
+      "trajectory_rmse_m": 35.61474692694927,
+      "drift_percent": 7.903299965075186,
       "update_rate_hz": 9.999999999997726
     }
   },

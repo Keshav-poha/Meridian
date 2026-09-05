@@ -13,7 +13,7 @@ def main() -> None:
         raise SystemExit(f"feature contract missing keys: {sorted(missing)}")
     samples = expected_window_samples(spec)
     if samples <= 0 or len(spec["input_channels"]) != 9:
-        raise SystemExit("feature contract must define a positive window and nine raw IMU channels")
+        raise SystemExit("feature contract must define a positive window and nine model-input channels")
     roots = ["ml", "mobile", "edge", "shared"]
     absent = [root for root in roots if not (repository_root() / root).is_dir()]
     if absent:

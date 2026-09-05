@@ -3,7 +3,7 @@
 MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead Reckoning (IDR) system. It replays and trains on IO-VNBD driving data, builds a GNSS-aided/dead-reckoning trajectory, and exposes the same inference contract to a Flutter mobile app and a portable edge runtime.
 
 The complete offline pipeline is implemented. Its held-out 60-second IO-VNBD
-Driver B GNSS blackout ends at **47.35 m error over 676.92 m (6.99% drift) at
+Driver B GNSS blackout ends at **53.50 m error over 676.92 m (7.90% drift) at
 10 Hz**, passing the required less-than-10-percent drift target. See the
 [position plot and metrics table](docs/evaluation/stage12/README.md).
 
@@ -22,7 +22,7 @@ Driver B GNSS blackout ends at **47.35 m error over 676.92 m (6.99% drift) at
 - All timestamps are UTC epoch seconds, stored as `timestamp_s`.
 - IMU vectors use the phone body frame: `x` right, `y` up, `z` toward the user/screen normal. The calibration stage produces the body-to-vehicle rotation.
 - Vehicle frame is `x` forward, `y` right, `z` down. Navigation output is local ENU meters anchored at the first valid ground-truth/GNSS fix.
-- Model inputs are fixed 2.0-second, 10 Hz windows to preserve IO-VNBD's measured signal. Mobile (100 Hz) and edge (200 Hz) adapters filter/aggregate their live streams to that contract; their fusion loops continue at native rate. The contract lives in `shared/config/feature_spec.json`.
+- Model inputs are fixed 2.0-second, 10 Hz windows of gravity-compensated, body-to-vehicle-calibrated IMU data. Mobile (100 Hz) and edge (200 Hz) adapters filter/aggregate their live streams to that contract; their fusion loops continue at native rate. The contract lives in `shared/config/feature_spec.json`.
 
 ## Staged execution
 

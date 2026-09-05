@@ -8,6 +8,7 @@ from pathlib import Path
 
 from idr_ml.calibration import CalibrationResult
 from idr_ml.iovnbd import build_fixed_windows, load_synchronized_pair
+from idr_ml.preprocessing import VELOCITY_FEATURE_COLUMNS, calibrated_velocity_features
 from idr_ml.velocity_model import save_velocity_artifact, train_velocity_cnn
 
 
@@ -22,10 +23,13 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=40)
     args = parser.parse_args()
     frame = load_synchronized_pair(args.smartphone, args.vehicle, nrows=args.max_rows)
-    windows = build_fixed_windows(frame)
     calibration_data = json.loads(args.calibration.read_text(encoding="utf-8"))
     calibration_data.pop("stage", None)
     calibration = CalibrationResult(**calibration_data)
+    windows = build_fixed_windows(
+        calibrated_velocity_features(frame, calibration),
+        feature_columns=VELOCITY_FEATURE_COLUMNS,
+    )
     model, normalization, metrics = train_velocity_cnn(windows, frame, calibration, epochs=args.epochs)
     if metrics.test_mae_mps >= metrics.classical_speed_mae_mps:
         raise SystemExit("learned velocity model did not beat the classical implied speed baseline")
