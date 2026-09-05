@@ -11,7 +11,7 @@ With the public IO-VNBD `M (Driver B)` phone/vehicle CSV pair in
 `ml/data/raw/iovnbd_m/`, run the complete provenance-preserving sequence:
 
 ```powershell
-$env:PYTHONPATH = 'ml/.vendor;ml/src;edge/python/src'
+$env:PYTHONPATH = 'ml/src;edge/python/src'
 py -3.13 ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
 py -3.13 ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
 py -3.13 ml/scripts/stage10_export.py

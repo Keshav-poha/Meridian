@@ -2,8 +2,14 @@
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 ml/.vendor/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 *.egg-info/
 
 # ML data and generated artifacts
@@ -12,16 +18,39 @@ ml/data/
 ml/artifacts/
 ml/reports/
 edge/artifacts/
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.keras
 tmp/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
 
 # Flutter/Dart
 mobile/.dart_tool/
 mobile/.flutter-plugins*
 mobile/build/
 mobile/.packages
+mobile/coverage/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+*.apk
+*.aab
 
 # IDE / OS
 .idea/
 .vscode/
 Thumbs.db
 .DS_Store
+
+# Local coding-assistant state
+.meridian/

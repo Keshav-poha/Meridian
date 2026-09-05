@@ -1,0 +1,26 @@
+# SIH 26168 compliance matrix
+
+This matrix maps the requested capabilities to evidence in the repository. “Partial” is deliberate: it means the code exists only offline, only for the velocity sub-system, or still lacks required field validation.
+
+| Problem-statement requirement | What was built | Proof / status |
+| --- | --- | --- |
+| Ingest IMU, GNSS, and ground truth from IO-VNBD | Timestamp-aligned IO-VNBD loader with 10 Hz interpolation, source-gap rejection, and a tracked Driver B subset replay. | [`ml/src/idr_ml/iovnbd.py`](../ml/src/idr_ml/iovnbd.py), [`ml/scripts/stage2_ingest.py`](../ml/scripts/stage2_ingest.py), ML tests. **Complete offline.** |
+| Calibrate phone mounting pitch, roll, yaw | Static gravity leveling plus dynamic turn-kinematic yaw fit; live gate requires GNSS-course and mount evidence. | [`ml/src/idr_ml/calibration.py`](../ml/src/idr_ml/calibration.py), [`mobile/lib/services/imu_preprocessor.dart`](../mobile/lib/services/imu_preprocessor.dart). **Complete offline; field validation pending.** |
+| Denoise IMU and reject idle, bumps, mount shake, non-navigation motion | Gravity removal, vehicle-frame transform, stationary/shock/out-of-distribution/freshness gates; field-log preparation for negative classes. | [`mobile/lib/services/motion_gate.dart`](../mobile/lib/services/motion_gate.dart), [`ml/scripts/prepare_motion_negatives.py`](../ml/scripts/prepare_motion_negatives.py). **Partial:** no collected multi-device negative-data training set yet. |
+| Estimate vehicle forward velocity without OBD-II | 961-parameter TinyVelocityCNN regresses scalar forward speed from 2-second IMU windows; no OBD-II dependency. | [`ml/src/idr_ml/velocity_model.py`](../ml/src/idr_ml/velocity_model.py), [`docs/technical-approach.md`](technical-approach.md). **Complete offline.** |
+| Integrate velocity and heading using car non-holonomic constraints | Forward-only NHC integrator resets lateral/vertical velocity and uses calibrated yaw. | [`ml/src/idr_ml/dead_reckoning.py`](../ml/src/idr_ml/dead_reckoning.py). **Complete offline.** |
+| Map-match DR to OpenStreetMap roads | Offline HMM/Viterbi matcher with max-distance, ambiguity, and heading rejection; raw point retained when unsafe. | [`ml/src/idr_ml/map_matching.py`](../ml/src/idr_ml/map_matching.py), [`docs/safety/map-matching.md`](safety/map-matching.md). **Partial:** not deployed in mobile/edge runtime. |
+| Fuse GNSS and INS | Guarded adaptive residual replay uses pre-outage history and rejects weak residual fits. The mobile runtime requires two fresh quality stream fixes before its initial origin, while cache/one-shot fixes remain display-only. | [`ml/src/idr_ml/fusion.py`](../ml/src/idr_ml/fusion.py), [`mobile/lib/services/live_idr_engine.dart`](../mobile/lib/services/live_idr_engine.dart), benchmark metrics. **Partial:** not a live EKF/UKF measurement-update engine; Android provider/satellite provenance is not yet exposed to Dart. |
+| Switch GNSS-aided INS ↔ DR without a visible jump | Mobile has GNSS-aided, DR, and 500 ms reacquisition states; a fresh post-loss fix is required before recovery. | [`mobile/lib/services/live_idr_engine.dart`](../mobile/lib/services/live_idr_engine.dart), [`ml/src/idr_ml/mode_switch.py`](../ml/src/idr_ml/mode_switch.py). **Implemented; physical moving-drive latency pending.** |
+| Export for mobile and edge | Hash-bound TFLite and ONNX velocity exports, shared normalization, TFLite mobile loader, and Python ONNX Runtime reference. | [`shared/models/`](../shared/models), [`ml/scripts/stage10_export.py`](../ml/scripts/stage10_export.py), [`edge/python`](../edge/python). **Complete for velocity; full edge navigation remains partial.** |
+| Mobile update rate 10 Hz; edge around 200 Hz | Mobile ticker is configured at 100 ms. Edge input resampling supports 200 Hz and the reference profiled at 3,248 inferences/s while fed a 200 Hz stream. | [`mobile/lib/services/live_idr_engine.dart`](../mobile/lib/services/live_idr_engine.dart), [`docs/test-results.md`](test-results.md). **Partial:** physical mobile rate and complete 200 Hz edge navigation rate are not measured. |
+| DR drift below 10% during GNSS blackout | Held-out 60-second IO-VNBD Driver B replay ends at 54.71 m error over 689.81 m: 7.93%. | [`docs/benchmarks/iovnbd-driver-b-stage12/`](benchmarks/iovnbd-driver-b-stage12/). **Passes one offline split; real-drive validation pending.** |
+| IO-VNBD subset position plot and metrics table | Versioned SVG plot, CSV, JSON metrics, and sample trajectory are tracked. | [`docs/benchmarks/iovnbd-driver-b-stage12/position_plot.svg`](benchmarks/iovnbd-driver-b-stage12/position_plot.svg), [`metrics.csv`](benchmarks/iovnbd-driver-b-stage12/metrics.csv). **Complete offline.** |
+| Navigation and validation UI | Flutter splash, map, route controls, GPS-lost state, Developer Mode, confidence display, and trip logging. | [`mobile/lib/ui/meridian_shell.dart`](../mobile/lib/ui/meridian_shell.dart), [`mobile/lib/services/trip_recorder.dart`](../mobile/lib/services/trip_recorder.dart). **Core UI complete; real road validation pending.** |
+
+## Evaluator quick links
+
+- [Offline benchmark artifacts](benchmarks/iovnbd-driver-b-stage12/README.md)
+- [Technical approach](technical-approach.md)
+- [Detailed test results](test-results.md)
+- [Real-world validation protocol](validation/real-world-validation.md)

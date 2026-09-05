@@ -17,12 +17,11 @@ The app contains the following live states:
 
 ## Run
 
-Flutter is available in the companion MOVE workspace on this machine. From this
-directory, use either a Flutter installation on `PATH` or:
+From this directory, with Flutter installed and available on `PATH`:
 
 ```powershell
-& 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' pub get
-& 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' run
+flutter pub get
+flutter run
 ```
 
 The first run requires location permission. The map uses OpenStreetMap tiles, so
@@ -33,9 +32,9 @@ for the comparison card and never feeds it into the displayed prediction.
 ## Verify
 
 ```powershell
-& 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' analyze
-& 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' test
-& 'C:\Projects\Move\.flutter_sdk\flutter\bin\flutter.bat' build apk --debug
+flutter analyze
+flutter test
+flutter build apk --debug
 ```
 
 The debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`.

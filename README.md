@@ -1,49 +1,161 @@
-# MERIDIAN — Intelligent Dead Reckoning
+# MERIDIAN
 
-MERIDIAN is a two-target implementation of the ISRO SIH 26168 Intelligent Dead Reckoning (IDR) system. It replays and trains on IO-VNBD driving data, builds a GNSS-aided/dead-reckoning trajectory, and exposes the same inference contract to a Flutter mobile app and a portable edge runtime.
+Intelligent dead reckoning for GPS-denied road navigation on a phone and a portable edge runtime.
 
-The complete offline pipeline is implemented. Its held-out 60-second IO-VNBD
-Driver B GNSS blackout ends at **53.50 m error over 676.92 m (7.90% drift) at
-10 Hz**, passing the required less-than-10-percent drift target. See the
-[position plot and metrics table](docs/evaluation/stage12/README.md).
+## Problem Statement
 
-## Repository layout
+MERIDIAN addresses Smart India Hackathon problem statement **26168**: “AI-ML based Intelligent Dead Reckoning system for seamless navigation,” under the Indian Space Research Organisation (ISRO), Department of Space. It is a Software-category problem in the Smart Vehicles theme. The task is to keep a road vehicle navigable when GNSS becomes unavailable by combining phone IMU data with GNSS when it is available. The solution must estimate motion without OBD-II, constrain the result to how a car can move, and support both mobile and edge deployment.
 
-| Directory | Responsibility |
+## What we built
+
+MERIDIAN is a reproducible IO-VNBD replay and deployment pipeline. It synchronizes phone and vehicle records, learns scalar forward speed from calibrated IMU windows, integrates that speed and vehicle-frame yaw with a non-holonomic constraint, and exposes the same model contract to a Flutter app and an ONNX Runtime edge reference. The mobile app includes a navigation view, GNSS outage simulator, Developer Mode telemetry, confidence reporting, and a real-drive recorder.
+
+## Core features
+
+| Problem-statement feature | Implementation and current boundary |
 | --- | --- |
-| `ml/` | Offline IO-VNBD ingestion, calibration, training, replay, and evaluation. |
-| `mobile/` | Flutter MERIDIAN app and the on-device sensor/inference adapters. |
-| `edge/` | Portable Python reference runtime and C++/ONNX Runtime hand-off point. |
-| `shared/` | Versioned feature, telemetry, and model-manifest contracts used by both targets. |
-| `docs/` | Stage status, reproducible evaluation artifacts, and tracked test results. |
+| In-vehicle mount calibration | Gravity-vector leveling estimates pitch/roll; turn kinematics and reliable GNSS course resolve mount yaw. Offline validation is complete; fixed-mount road validation remains pending. |
+| AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN estimates forward speed from 2-second, 9-channel vehicle-frame IMU windows. Motion, shock, mount, freshness, and input-distribution gates block unsafe output; no OBD-II input is used. |
+| Map matching with non-holonomic constraints | Forward-only NHC integration is implemented. A fail-closed OSM HMM/Viterbi matcher is validated offline; it is not yet wired into the mobile or edge runtime. |
+| GNSS + INS fusion | A guarded adaptive residual replay handles masked GNSS offline. A live quality-aware EKF/UKF measurement-update implementation is still pending. |
+| Seamless GNSS-loss/reacquisition switching | Mobile transitions between GNSS-aided, DR, and a 500 ms reacquisition blend, requiring a fresh post-loss fix before recovery. Physical moving-drive latency measurement is pending. |
+| Real-time navigation UI | Flutter/Dart MERIDIAN provides the required splash, map, route controls, GPS-lost state, Developer Mode, and More screens. |
+| Edge-deployable engine | The shared model exports to TFLite and ONNX. The Python ONNX Runtime reference accepts 100/200 Hz streams; the C++ project is an integration seam, not yet a full edge navigation engine. |
 
-## Canonical coordinate and time conventions
+## Beyond the problem statement
 
-- All timestamps are UTC epoch seconds, stored as `timestamp_s`.
-- IMU vectors use the phone body frame: `x` right, `y` up, `z` toward the user/screen normal. The calibration stage produces the body-to-vehicle rotation.
-- Vehicle frame is `x` forward, `y` right, `z` down. Navigation output is local ENU meters anchored at the first valid ground-truth/GNSS fix.
-- Model inputs are fixed 2.0-second, 10 Hz windows of gravity-compensated, body-to-vehicle-calibrated IMU data. Mobile (100 Hz) and edge (200 Hz) adapters filter/aggregate their live streams to that contract; their fusion loops continue at native rate. The contract lives in `shared/config/feature_spec.json`.
+- Every live velocity prediction has a continuous confidence value and an explanatory reason, rather than only a calibrated/not-calibrated flag.
+- Mount degradation, shock/bumps, stale sensors, implausible model windows, weak GNSS, and unarmed vehicle motion fail closed instead of being clipped into plausible-looking motion.
+- Developer Mode shows real sensor axes, raw physical GNSS, accepted/predicted positions, drift/error fields, confidence, and a trip recorder for field validation.
+- The replay pipeline guards against timestamp alignment mistakes, source gaps, calibration leakage, mixed model artifacts, and overlapping train/test windows.
+- Negative-motion collection and preparation tooling exists for parked/idle, bump, handheld-shake, and mount-shift captures. Those examples have **not** yet been collected across devices or used to retrain the model.
+- Only the IO-VNBD Driver B subset has been used for model evaluation. No second open dataset is claimed.
 
-## Staged execution
+## Benchmark results
 
-Implementation follows the numbered milestones requested in the problem statement. Each runnable stage writes its metric report to `ml/reports/` and fails loudly when its acceptance check cannot be evaluated. Stage progress is tracked in [`docs/STAGE_STATUS.md`](docs/STAGE_STATUS.md).
+The tracked held-out replay masks GNSS for 60 seconds in the IO-VNBD Driver B subset. It uses a corrected −3.9 s phone-to-vehicle clock fit, pre-blackout-only calibration, and no ground-truth columns during blackout propagation.
 
-The current local runtime is intentionally dependency-light. Install the optional packages in `ml/requirements.txt` before running model training or PNG plotting. The first ingestion stage includes an SVG plot fallback so its sanity check can run without matplotlib.
+| Method | Distance | Endpoint error | Drift | Update rate |
+| --- | ---: | ---: | ---: | ---: |
+| Classical NHC baseline | 689.81 m | 440.53 m | 63.86% | 10 Hz |
+| Learned-speed NHC | 689.81 m | 54.71 m | 7.93% | 10 Hz |
+| Guarded masked-GNSS replay | 689.81 m | 54.71 m | **7.93%** | 10 Hz |
 
-## Verification
+The `<10%` target passes for this offline segment. The required position plot, CSV, JSON metrics, and trajectory are in [the benchmark deliverable](docs/benchmarks/iovnbd-driver-b-stage12/README.md). A fixed-mount real-car blackout, mobile update-rate measurement, and physical transition-latency measurement are still required; the offline result must not be treated as a road-use claim.
 
-The repository has a GitHub Actions workflow for Python contracts, ML/edge unit
-tests, Flutter analysis, Flutter tests, and an Android debug APK build. Local
-commands and the latest verified outcomes are listed in
-[`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md). The data-backed Stage 12 replay
-is reproducible with `py -3.13 ml/scripts/stage12_evaluate.py` after the
-documented dataset/model setup.
+See [detailed test results](docs/test-results.md), [the technical approach](docs/technical-approach.md), and [the compliance matrix](docs/compliance-matrix.md).
 
-## Validation boundary
+## Architecture
 
-Offline IO-VNBD replay and package compilation are complete. A physical
-Android smoke test has verified live sensor/GNSS telemetry and safeguards
-against stationary or hand-held false speed; see
-[`docs/TEST_RESULTS.md`](docs/TEST_RESULTS.md). A moving-device blackout run
-is still required to measure physical drift, transition latency, and update
-rate against the <10% target.
+```mermaid
+flowchart LR
+  phone[Phone IMU + GNSS] --> mobile[Flutter mobile runtime]
+  phone --> ingest[IO-VNBD ingestion and replay]
+  ingest --> calibration[Mount calibration]
+  calibration --> features[Shared vehicle-frame features]
+  features --> velocity[TinyVelocityCNN speed estimate]
+  velocity --> dr[Forward-only NHC dead reckoning]
+  dr --> matcher[Fail-closed OSM map matcher]
+  dr --> fusion[GNSS-aided fusion / mode switch]
+  fusion --> mobile
+  features --> edge[Python ONNX edge reference]
+  shared[shared/ contracts + model manifests] --> mobile
+  shared --> edge
+  shared --> velocity
+```
+
+## Tech stack
+
+- Flutter/Dart: `sensors_plus`, `geolocator`, `flutter_map`, `provider`, and `tflite_flutter`.
+- Python: NumPy, pandas, PyTorch, ONNX, ONNX Runtime, and optional matplotlib/scikit-learn tooling.
+- Models: PyTorch training; TFLite for mobile and ONNX for the portable edge reference.
+- Maps: OpenStreetMap road geometry for the offline safe matcher and OpenStreetMap raster tiles in the mobile view.
+- Contracts: JSON feature specification, telemetry schema, and hash-bound model manifests under `shared/`.
+
+## Datasets and map data
+
+- [IO-VNBD](https://github.com/onyekpeu/IO-VNBD) — public phone/vehicle records used for timestamp synchronization, mount calibration, velocity training, and the tracked Driver B replay. Raw data is downloaded locally and is not committed.
+- [OpenStreetMap](https://www.openstreetmap.org/copyright) — road-map source used by the offline matcher and mobile map tiles. The app must retain visible OpenStreetMap attribution in public/demo builds.
+
+See [third-party notices](docs/third-party-notices.md) for upstream data, map, and dependency attribution boundaries.
+
+## Repository structure
+
+```text
+MERIDIAN/
+├── mobile/              Flutter app, live sensor bridge, TFLite inference, UI tests
+├── ml/                  IO-VNBD ingestion, training, replay, exports, evaluation
+├── edge/                Python ONNX Runtime reference and C++ integration seam
+├── shared/              Feature contract, telemetry/model schemas, portable models
+├── docs/
+│   ├── benchmarks/      Tracked IO-VNBD position plot, metrics, trajectory
+│   ├── validation/      Real-world drive protocol
+│   ├── safety/          Map-matching safety policy
+│   └── screenshots/     Reviewed, non-sensitive demo captures only
+├── README.md
+├── LICENSE
+└── .gitignore
+```
+
+## Setup and running
+
+### Flutter mobile app
+
+```powershell
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+flutter run
+```
+
+Grant location permission on first run. A fixed phone mount and an initial quality GNSS period are required before the app can trust dead-reckoning velocity.
+
+### ML training and evaluation
+
+From the repository root, use Python 3.10 or later:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r ml/requirements.txt
+$env:PYTHONPATH = "$PWD\ml\src;$PWD\edge\python\src"
+python ml/scripts/fetch_iovnbd_subset.py
+python ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
+python ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
+python ml/scripts/stage10_export.py
+python ml/scripts/stage12_evaluate.py
+```
+
+Stage 12 writes the reproducible offline deliverable to `docs/benchmarks/iovnbd-driver-b-stage12/` by default.
+
+### Edge reference runtime
+
+```powershell
+python -m pip install -e edge/python
+$env:PYTHONPATH = "$PWD\edge\python\src"
+python -m unittest discover -s edge/python/tests -v
+```
+
+The edge runtime is a velocity-inference reference. See [edge/README.md](edge/README.md) for its input contract and current integration boundary.
+
+## Team
+
+```text
+Team: MERIDIAN
+
+- Keshav — mobile application and runtime engineering
+- Aryan6600 and Saanvi-Tayal — AI/ML pipeline
+- crazysoulyt123 — UI/UX
+- its-anshika-sharma — research and business
+- ridhijain001 — presentation and other non-code deliverables
+```
+
+## License
+
+This repository is licensed under the [MIT License](LICENSE).
+
+## Submission checks still owned by the team
+
+Before submission, verify the current SIH portal requirements for repository-link format, proposal/PPT and demo-video links, required disclosures, and any rules about how a demo video or narration must be produced. Add only reviewed, non-sensitive screenshots and field logs to the repository.

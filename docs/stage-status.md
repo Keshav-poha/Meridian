@@ -17,8 +17,8 @@ needs the listed validation or runtime integration.
 | 9 | Mode-switch blending | Implemented; physical validation pending | Mobile uses a unified loss/reacquisition state, a 500 ms blend, and requires a post-loss timestamped quality GNSS fix before recovery. Physical loss/reacquisition latency is still to be logged on a moving drive. |
 | 10 | TFLite/ONNX export and target stubs | Partial — portable velocity runtime | Hash-bound 5,387-byte ONNX and 10,276-byte TFLite exports pass parity; the hardened Python ONNX reference sustained 3,248 Hz fed at 200 Hz. Full edge mount calibration, INS, map matching, and fusion remain required. |
 | 11 | Flutter MERIDIAN UI | Core UI complete; field validation pending | The specified screen set remains intact. Developer Mode adds confidence and a field logger; three-button Android navigation has been visually verified. Gesture-mode visual verification and a mounted road drive remain pending. |
-| 12 | Reproducible evaluation deliverable | Complete offline | `docs/evaluation/stage12/` contains the corrected position SVG, CSVs, metrics, hash-bound model provenance, and a 7.93% / 10 Hz result. |
+| 12 | Reproducible evaluation deliverable | Complete offline | `docs/benchmarks/iovnbd-driver-b-stage12/` contains the corrected position SVG, CSVs, metrics, hash-bound model provenance, and a 7.93% / 10 Hz result. |
 
 The next required validation is a real fixed-mount drive using the Developer
 Mode recorder and `ml/scripts/evaluate_live_drive.py`; see
-`docs/REAL_WORLD_VALIDATION.md`.
+`docs/validation/real-world-validation.md`.

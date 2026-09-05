@@ -1,0 +1,19 @@
+# Third-party notices
+
+MERIDIAN does not vendor the IO-VNBD dataset or OpenStreetMap extracts. Users who download data, tiles, or dependencies must comply with the applicable upstream terms and licenses.
+
+## IO-VNBD
+
+- Source: [IO-VNBD](https://github.com/onyekpeu/IO-VNBD)
+- Use in this repository: local download for timestamp synchronization, calibration, velocity training, and offline evaluation.
+- Status: raw dataset files are deliberately not committed. Consult the upstream repository for its citation and license terms before redistributing any data.
+
+## OpenStreetMap
+
+- Source: [OpenStreetMap](https://www.openstreetmap.org/copyright)
+- Use in this repository: offline road geometry for map matching and raster tiles from `tile.openstreetmap.org` in the Flutter map.
+- Attribution: public/demo builds must visibly credit `© OpenStreetMap contributors` and comply with the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/). The current mobile UI still needs that visible in-map attribution before public demonstration.
+
+## Software dependencies
+
+The Flutter, Python, ONNX Runtime, PyTorch, and map-library dependencies are declared in the relevant `pubspec.yaml`, requirements files, and package manifests. Their licenses remain with their respective authors.

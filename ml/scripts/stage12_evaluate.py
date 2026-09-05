@@ -60,7 +60,11 @@ def main() -> None:
         "--allow-unverified-calibration", action="store_true",
         help="allow a legacy calibration JSON without timestamp-alignment provenance",
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("docs/evaluation/stage12"))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("docs/benchmarks/iovnbd-driver-b-stage12"),
+    )
     parser.add_argument("--max-rows", type=int, default=5000)
     parser.add_argument("--start-seconds", type=float, default=430.0)
     parser.add_argument("--duration-seconds", type=float, default=60.0)

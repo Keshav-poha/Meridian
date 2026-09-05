@@ -1,116 +1,53 @@
-# ML/replay pipeline
+# ML and replay pipeline
 
-`idr_ml` owns offline ingestion, synchronization, calibration, classical dead reckoning, model training, and evaluation. Its public input/output definitions are in `../shared`.
+`idr_ml` owns IO-VNBD ingestion, timestamp synchronization, mount calibration, velocity training, offline replay, model export, and reproducible evaluation. Shared input/output contracts live in [`../shared`](../shared).
 
-```powershell
-$idrPython = 'C:\\Users\\Keshav\\.cache\\meridian-runtimes\\meridian-primary-runtime\\dependencies\\python\\python.exe'
-& $idrPython -m idr_ml.validate_contract
-```
+## Environment
 
-## Stage 2 replay command
-
-Fetch the public synchronized `M (Driver B)` pair, then run a 5,000-row
-reproducible subset through timestamp synchronization, fixed-window creation,
-and a ground-truth/IMU SVG sanity plot:
+From the repository root, use Python 3.10 or later:
 
 ```powershell
-$idrPython = 'C:\\Users\\Keshav\\.cache\\meridian-runtimes\\meridian-primary-runtime\\dependencies\\python\\python.exe'
-& $idrPython ml/scripts/fetch_iovnbd_subset.py
-$env:PYTHONPATH = 'ml\\src'
-& $idrPython ml/scripts/stage2_ingest.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r ml/requirements.txt
+$env:PYTHONPATH = "$PWD\ml\src;$PWD\edge\python\src"
+python -m idr_ml.validate_contract
 ```
 
-Generated raw data and reports remain beneath ignored folders in this directory.
+Raw datasets, checkpoints, reports, and local package caches are intentionally ignored by Git.
 
-## Stage 3 calibration command
+## Reproducible Driver B sequence
+
+Fetch the public `M (Driver B)` smartphone/vehicle pair, then run the stages below from the repository root:
 
 ```powershell
-$env:PYTHONPATH = 'ml\\src'
-& $idrPython ml/scripts/stage3_calibrate.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/fetch_iovnbd_subset.py
+python ml/scripts/stage2_ingest.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/stage3_calibrate.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000 --calibration-end-seconds 430
+python ml/scripts/stage4_baseline_dr.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/stage5_train_velocity.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv --max-rows 5000
+python ml/scripts/stage6_learned_velocity_dr.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/stage7_map_match.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/stage8_fusion.py --smartphone ml/data/raw/iovnbd_m/S-M.csv --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/stage10_export.py
+python ml/scripts/stage12_evaluate.py
 ```
 
-## Stage 4 baseline DR command
+Stage 10 needs TensorFlow in addition to `ml/requirements.txt` when TFLite export is required:
 
 ```powershell
-$env:PYTHONPATH = 'ml\\src'
-& $idrPython ml/scripts/stage4_baseline_dr.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python -m pip install tensorflow
 ```
 
-## Stage 5 velocity-model command
+Stage 12 evaluates the tracked portable ONNX artifact rather than a local checkpoint. It writes the held-out position plot, metrics, and trajectory to [`../docs/benchmarks/iovnbd-driver-b-stage12/`](../docs/benchmarks/iovnbd-driver-b-stage12/) and exits non-zero if the offline drift threshold cannot be evaluated or is missed.
 
-Install the project-local CPU PyTorch dependency once, then train and compare
-the temporal held-out split with the Stage 4 classical implied speed:
+## Field-drive evaluation
+
+After recording a fixed-mount drive in Developer Mode, score the copied JSONL file with:
 
 ```powershell
-& $idrPython -m pip install --target ml/.vendor torch --index-url https://download.pytorch.org/whl/cpu
-$env:PYTHONPATH = 'ml/.vendor;ml/src'
-& $idrPython ml/scripts/stage5_train_velocity.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
+python ml/scripts/evaluate_live_drive.py <trip-log.jsonl> --windows 10,30,60 --output-dir ml/reports/live_drive
 ```
 
-## Stage 6 learned-speed DR command
-
-```powershell
-$env:PYTHONPATH = 'ml/.vendor;ml/src'
-& $idrPython ml/scripts/stage6_learned_velocity_dr.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
-```
-
-## Stage 7 OSM map-matching command
-
-```powershell
-$env:PYTHONPATH = 'ml/.vendor;ml/src'
-& $idrPython ml/scripts/stage7_map_match.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
-```
-
-## Stage 8 adaptive fusion command
-
-```powershell
-$env:PYTHONPATH = 'ml/.vendor;ml/src'
-& $idrPython ml/scripts/stage8_fusion.py `
-  --smartphone ml/data/raw/iovnbd_m/S-M.csv `
-  --vehicle ml/data/raw/iovnbd_m/V-M.csv
-```
-
-## Stage 10 portable export command
-
-This exports the trained Stage 5 checkpoint to the versioned shared model
-directory and copies the mobile TFLite asset. The exporter checks ONNX and
-TFLite output against PyTorch, then profiles actual ONNX Runtime calls from a
-synthetic 200 Hz FOG-grade IMU stream.
-
-```powershell
-py -3.13 -m pip install --target ml/.vendor torch tensorflow onnx onnxruntime
-$env:PYTHONPATH = 'ml/.vendor;ml/src;edge/python/src'
-py -3.13 ml/scripts/stage10_export.py
-```
-
-`shared/models/velocity_cnn.normalization.json` is the single preprocessing
-artifact consumed by both targets. ONNX accepts `[batch, channel, time]`; the
-TFLite asset accepts the equivalent `[batch, time, channel]` layout.
-
-## Stage 12 reproducible evaluation
-
-This is the final offline deliverable. It replays the held-out 60-second Driver
-B GNSS blackout, writes the trajectory figure and metrics table under the
-tracked `docs/evaluation/stage12/` folder, and exits non-zero if the fusion
-drift threshold is missed.
-
-```powershell
-$env:PYTHONPATH = 'ml/.vendor;ml/src'
-py -3.13 ml/scripts/stage12_evaluate.py
-```
-
-The committed result contains the local-ENU position plot, the sample-level
-trajectory, a CSV comparison of classical/learned/fused runs, and a machine-
-readable JSON report.
+See [`../docs/validation/real-world-validation.md`](../docs/validation/real-world-validation.md) for the collection protocol and known validation boundary.
