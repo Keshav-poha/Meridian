@@ -20,7 +20,7 @@ MERIDIAN is a reproducible IMU/GNSS replay and deployment pipeline. It synchroni
 | GNSS + INS fusion | The live runtime keeps Flutter's best-for-navigation Android stream as the primary source, accepts valid degraded navigation fixes separately from tighter aiding fixes, and anchors INS speed to measured GNSS before a blackout. A live EKF/UKF measurement-update implementation is still pending. |
 | Seamless GNSS-loss/reacquisition switching | Mobile transitions between GNSS-aided, DR, and a 500 ms reacquisition blend, requiring a fresh post-loss fix before recovery. Physical moving-drive latency measurement is pending. |
 | Real-time navigation UI | Flutter/Dart MERIDIAN provides the required splash, map, route controls, GPS-lost state, Developer Mode, and More screens. |
-| Edge-deployable engine | The shared model exports to TFLite and ONNX. The Python ONNX Runtime reference accepts 100/200 Hz streams; the C++ project is an integration seam, not yet a full edge navigation engine. |
+| Edge-deployable engine | The verified 200 Hz edge reference is `edge/python`, which runs ONNX Runtime and accepts 100/200 Hz streams. `edge/cpp` is only an uncompiled CMake/ONNX Runtime integration seam; no finished C++ FOG navigation pipeline is claimed. |
 
 ## Beyond the problem statement
 
@@ -95,7 +95,7 @@ See [third-party notices](docs/third-party-notices.md) for upstream data, map, a
 MERIDIAN/
 ├── mobile/              Flutter app, live sensor bridge, TFLite inference, UI tests
 ├── ml/                  IO-VNBD ingestion, training, replay, exports, evaluation
-├── edge/                Python ONNX Runtime reference and C++ integration seam
+├── edge/                Verified Python ONNX Runtime reference and C++ integration seam
 ├── shared/              Feature contract, telemetry/model schemas, portable models
 ├── docs/
 │   ├── benchmarks/      Tracked IO-VNBD position plot, metrics, trajectory
@@ -150,7 +150,7 @@ $env:PYTHONPATH = "$PWD\edge\python\src"
 python -m unittest discover -s edge/python/tests -v
 ```
 
-The edge runtime is a velocity-inference reference. See [edge/README.md](edge/README.md) for its input contract and current integration boundary.
+The verified 200 Hz edge runtime is the Python ONNX Runtime velocity-inference reference. `edge/cpp` remains an integration interface seam and is not presented as a compiled FOG-grade navigation engine. See [edge/README.md](edge/README.md) for its input contract and current boundary.
 
 ## Team
 
