@@ -8,12 +8,12 @@ repeats the unit and build checks on every push and pull request.
 
 | Target | Command | Result |
 | --- | --- | --- |
-| Shared ML pipeline | `py -3.13 -m unittest discover -s ml/tests -v` | 5 passed in 0.064 s |
+| Shared ML pipeline | `py -3.13 -m unittest discover -s ml/tests -v` | 6 passed |
 | Edge preprocessing | `py -3.13 -m unittest discover -s edge/python/tests -v` | 1 passed in 0.027 s |
 | Flutter static analysis | `flutter analyze` | No issues (10.6 s) |
-| Flutter controller test | `flutter test` | 1 passed |
+| Flutter test suite | `flutter test` | 6 passed |
 | Android package | `flutter build apk --debug` | Built successfully; 173,619,646-byte APK |
-| IO-VNBD held-out replay | `py -3.13 ml/scripts/stage12_evaluate.py` | 6.99% endpoint drift (47.35 m / 676.92 m) at 10 Hz; passes the <10% requirement |
+| IO-VNBD held-out replay | `py -3.13 ml/scripts/stage12_evaluate.py` | 7.90% endpoint drift (53.50 m / 676.92 m) at 10 Hz; passes the <10% requirement |
 
 The position plot, sample-level trajectory, and machine-readable metric report
 are in [Stage 12 evaluation](evaluation/stage12/README.md).
@@ -24,9 +24,9 @@ are in [Stage 12 evaluation](evaluation/stage12/README.md).
 | --- | --- |
 | Device and permissions | Android 16 physical device; live accelerometer, gyroscope, magnetometer, and fused GNSS data reached Developer Mode. |
 | GNSS request | High-accuracy request accepted at 1 second. The Android fused provider batched stationary callbacks at about 5 seconds, so the runtime uses an 8-second freshness watchdog to avoid false loss banners. |
-| Parked-phone false velocity | The IO-VNBD CNN emitted a raw 7.46 m/s on a stationary phone. Motion gating held navigation velocity at 0.00 m/s and the displayed GPS-vs-prediction error at 0.0 m. |
-| Hand-held false velocity mitigation | A GNSS vehicle-motion latch now rejects CNN speed until a live GNSS fix has confirmed vehicle motion. The installed debug build showed 0.0 m/s from an unarmed stationary start. |
-| Build and focused regression tests | `flutter analyze`: no issues; `flutter test`: 4 passed; `flutter build apk --debug`: built successfully. |
+| Raw-axis model diagnosis | The original artifact emitted a raw 7.46 m/s on a stationary phone because its raw magnetic field was far outside the training distribution. It has been replaced. |
+| Orientation/gravity correction | The shipped model now consumes complementary-filter gravity-compensated acceleration, a dynamic GNSS-course mount transform, and normalized vehicle-frame magnetic direction. It stays untrusted until the phone is fixed in the vehicle and the course calibration completes. |
+| Build and focused regression tests | `flutter analyze`: no issues; `flutter test`: 6 passed; the updated debug APK built and installed successfully. Physical fixed-mount calibration remains pending. |
 
 This is a static-device smoke test, not a replacement for the held-out
 IO-VNBD replay. A moving 50 m/1 km blackout run is still required to measure

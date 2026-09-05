@@ -13,7 +13,7 @@ from .contracts import TelemetryFrame
 
 
 class FixedWindowPreprocessor:
-    """Resample irregular raw IMU frames into the shared 2 s / 10 Hz contract."""
+    """Resample calibrated IMU frames into the shared 2 s / 10 Hz contract."""
 
     def __init__(self, normalization_path: str | Path, *, window_seconds: float = 2.0, model_rate_hz: float = 10.0) -> None:
         self.window_seconds = window_seconds
@@ -38,7 +38,11 @@ class FixedWindowPreprocessor:
             return None
         timestamps = np.asarray([item.timestamp_s for item in self._frames], dtype=np.float64)
         raw = np.asarray([
-            [*item.acceleration_mps2, *item.gyroscope_rps, *item.magnetometer_ut]
+            [
+                *item.linear_acceleration_vehicle_mps2,
+                *item.gyroscope_vehicle_rps,
+                *item.magnetic_direction_vehicle,
+            ]
             for item in self._frames
         ], dtype=np.float32)
         target = np.linspace(

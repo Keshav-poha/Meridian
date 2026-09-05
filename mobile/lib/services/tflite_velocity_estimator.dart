@@ -6,6 +6,8 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../domain/telemetry_snapshot.dart';
+import 'imu_preprocessor.dart';
+import 'velocity_model_quality.dart';
 
 /// Runs the shared Stage 10 velocity CNN over live phone IMU data.
 ///
@@ -25,6 +27,7 @@ class TfliteVelocityEstimator {
   final double _targetMean;
   final double _targetStd;
   final List<_ImuReading> _samples = <_ImuReading>[];
+  final VehicleFramePreprocessor _preprocessor = VehicleFramePreprocessor();
 
   Axis3 _accelerometer = const Axis3(0, 0, 0);
   Axis3 _gyroscope = const Axis3(0, 0, 0);
@@ -65,8 +68,14 @@ class TfliteVelocityEstimator {
     });
   }
 
-  /// Returns m/s when a full two-second window is ready, otherwise null.
-  double? estimate() {
+  /// Supplies the moving-vehicle GNSS reference used to resolve mount yaw.
+  void setGnssReference(
+      {required double speedMps, required double headingDeg}) {
+    _preprocessor.setGnssReference(speedMps: speedMps, headingDeg: headingDeg);
+  }
+
+  /// Returns a quality-scored estimate when a full two-second window is ready.
+  VelocityEstimate? estimate() {
     if (_samples.length < 2 ||
         _samples.last.timestamp.difference(_samples.first.timestamp) <
             _windowDuration) {
@@ -96,21 +105,25 @@ class TfliteVelocityEstimator {
     final output = List<List<double>>.filled(1, List<double>.filled(1, 0),
         growable: false);
     _interpreter.run(input, output);
-    return output[0][0] * _targetStd + _targetMean;
+    return VelocityEstimate(
+      speedMps: output[0][0] * _targetStd + _targetMean,
+      quality: VelocityModelQuality.fromNormalizedWindow(input[0]),
+      mountCalibrated: _samples.every((sample) => sample.mountCalibrated),
+    );
   }
 
   void _append(DateTime timestamp) {
-    _samples.add(_ImuReading(timestamp, <double>[
-      _accelerometer.x,
-      _accelerometer.y,
-      _accelerometer.z,
-      _gyroscope.x,
-      _gyroscope.y,
-      _gyroscope.z,
-      _magnetometer.x,
-      _magnetometer.y,
-      _magnetometer.z,
-    ]));
+    final vehicleFrame = _preprocessor.update(
+      accelerometer: _accelerometer,
+      gyroscope: _gyroscope,
+      magnetometer: _magnetometer,
+      timestamp: timestamp,
+    );
+    _samples.add(_ImuReading(
+      timestamp,
+      vehicleFrame.modelValues,
+      vehicleFrame.mountCalibrated,
+    ));
     final cutoff =
         timestamp.subtract(_windowDuration + const Duration(milliseconds: 100));
     _samples.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
@@ -144,7 +157,26 @@ class TfliteVelocityEstimator {
 }
 
 class _ImuReading {
-  const _ImuReading(this.timestamp, this.values);
+  const _ImuReading(this.timestamp, this.values, this.mountCalibrated);
   final DateTime timestamp;
   final List<double> values;
+  final bool mountCalibrated;
+}
+
+class VelocityEstimate {
+  const VelocityEstimate({
+    required this.speedMps,
+    required this.quality,
+    required this.mountCalibrated,
+  });
+
+  final double speedMps;
+  final VelocityModelQuality quality;
+  final bool mountCalibrated;
+
+  bool get isTrusted =>
+      speedMps.isFinite &&
+      speedMps >= 0 &&
+      quality.isInDistribution &&
+      mountCalibrated;
 }

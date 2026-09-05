@@ -587,7 +587,8 @@ class _RawSensorData extends StatelessWidget {
                   ? 'Awaiting IMU window'
                   : '${snapshot!.stationary ? 'Stationary — velocity held at 0' : 'Moving — velocity accepted'}\n'
                       '${snapshot!.vehicleMotionArmed ? 'GNSS-confirmed vehicle motion armed' : 'Awaiting GNSS-confirmed vehicle motion'}\n'
-                      'Velocity CNN: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
+                      '${!snapshot!.mountCalibrated ? 'Mount calibration: awaiting fixed mount + GNSS course' : snapshot!.velocityModelTrusted ? 'Velocity CNN input: calibrated and in distribution' : 'Velocity CNN input: rejected — device/model mismatch'}\n'
+                      'Velocity CNN diagnostic: ${snapshot!.modelSpeedMps.toStringAsFixed(2)} m/s  •  navigation: ${snapshot!.speedMps.toStringAsFixed(2)} m/s'),
             ]),
           ),
           const SizedBox(height: 14),

@@ -7,9 +7,10 @@ namespace meridian_idr {
 
 struct TelemetryFrame {
   double timestamp_s{};
-  std::array<float, 3> acceleration_mps2{};
-  std::array<float, 3> gyroscope_rps{};
-  std::array<float, 3> magnetometer_ut{};
+  // Calibrated body-to-vehicle axes; gravity removed from acceleration.
+  std::array<float, 3> linear_acceleration_vehicle_mps2{};
+  std::array<float, 3> gyroscope_vehicle_rps{};
+  std::array<float, 3> magnetic_direction_vehicle{};
   std::optional<double> latitude_deg{};
   std::optional<double> longitude_deg{};
 };

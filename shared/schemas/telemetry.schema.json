@@ -22,6 +22,11 @@
       "required": ["speed_mps", "accelerometer_mps2", "gyroscope_rps", "magnetometer_ut"],
       "properties": {
         "speed_mps": {"type": "number"},
+        "model_speed_mps": {"type": "number"},
+        "velocity_model_trusted": {"type": "boolean"},
+        "mount_calibrated": {"type": "boolean"},
+        "stationary": {"type": "boolean"},
+        "vehicle_motion_armed": {"type": "boolean"},
         "accelerometer_mps2": {"$ref": "#/$defs/vector3"},
         "gyroscope_rps": {"$ref": "#/$defs/vector3"},
         "magnetometer_ut": {"$ref": "#/$defs/vector3"}

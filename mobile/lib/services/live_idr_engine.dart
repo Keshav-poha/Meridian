@@ -45,6 +45,8 @@ class LiveIdrEngine implements IdrEngine {
   double _headingDegrees = 0;
   double _speedMps = 0;
   double _modelSpeedMps = 0;
+  bool _velocityModelTrusted = false;
+  bool _mountCalibrated = false;
   double _drDistanceM = 0;
   bool _stationary = false;
   bool _vehicleMotionArmed = false;
@@ -95,6 +97,10 @@ class LiveIdrEngine implements IdrEngine {
         Geolocator.getPositionStream(locationSettings: settings)
             .listen((position) {
       _actualPosition = position;
+      _velocityEstimator?.setGnssReference(
+        speedMps: position.speed,
+        headingDeg: position.heading,
+      );
       if (!_gnssEnabled) return;
       _headingDegrees = _validHeading(position.heading) ?? _headingDegrees;
       final fix = _LocalPosition(position.latitude, position.longitude);
@@ -143,13 +149,26 @@ class LiveIdrEngine implements IdrEngine {
       gyroscope: _gyroscope,
       gnssReportsMotion: gnssReportsMotion,
     );
-    final inferredSpeed = _velocityEstimator?.estimate();
-    if (inferredSpeed != null && inferredSpeed.isFinite) {
-      _modelSpeedMps = inferredSpeed.clamp(0.0, 55.0).toDouble();
+    final inferred = _velocityEstimator?.estimate();
+    if (inferred != null) {
+      // Retain a bounded diagnostic value for Developer Mode, but never let an
+      // out-of-distribution model response participate in navigation.
+      _modelSpeedMps = inferred.speedMps.clamp(0.0, 55.0).toDouble();
+      _velocityModelTrusted = inferred.isTrusted;
+      _mountCalibrated = inferred.mountCalibrated;
     }
-    final modelVelocityAllowed =
-        gnssReportsMotion || (!_gnssEnabled && _vehicleMotionLatch.armed);
-    _speedMps = _stationary || !modelVelocityAllowed ? 0.0 : _modelSpeedMps;
+    final trustedDrVelocity = !_gnssEnabled &&
+        _vehicleMotionLatch.armed &&
+        _velocityModelTrusted &&
+        !_stationary;
+    // In GNSS-aided mode, GNSS speed is the measured reference. The CNN is
+    // reserved for a valid, calibrated blackout window rather than overriding
+    // a good satellite measurement with a model extrapolation.
+    _speedMps = gnssReportsMotion
+        ? _actualPosition!.speed
+        : trustedDrVelocity
+            ? _modelSpeedMps
+            : 0.0;
 
     final sourceHeading = _actualPosition == null
         ? null
@@ -173,6 +192,8 @@ class LiveIdrEngine implements IdrEngine {
       mode: mode,
       speedMps: _speedMps,
       modelSpeedMps: _modelSpeedMps,
+      velocityModelTrusted: _velocityModelTrusted,
+      mountCalibrated: _mountCalibrated,
       stationary: _stationary,
       vehicleMotionArmed: _vehicleMotionArmed,
       headingDeg: _headingDegrees,

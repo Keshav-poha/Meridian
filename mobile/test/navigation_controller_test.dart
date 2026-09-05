@@ -48,6 +48,8 @@ TelemetrySnapshot _snapshot() => TelemetrySnapshot(
       mode: NavigationMode.gnssAidedIns,
       speedMps: 4.2,
       modelSpeedMps: 4.2,
+      velocityModelTrusted: true,
+      mountCalibrated: true,
       stationary: false,
       vehicleMotionArmed: true,
       headingDeg: 135,

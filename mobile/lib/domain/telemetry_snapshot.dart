@@ -15,6 +15,8 @@ class TelemetrySnapshot {
     required this.mode,
     required this.speedMps,
     required this.modelSpeedMps,
+    required this.velocityModelTrusted,
+    required this.mountCalibrated,
     required this.stationary,
     required this.vehicleMotionArmed,
     required this.headingDeg,
@@ -40,6 +42,8 @@ class TelemetrySnapshot {
   final NavigationMode mode;
   final double speedMps;
   final double modelSpeedMps;
+  final bool velocityModelTrusted;
+  final bool mountCalibrated;
   final bool stationary;
   final bool vehicleMotionArmed;
   final double headingDeg;

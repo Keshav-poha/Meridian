@@ -24,9 +24,9 @@ class EdgeWindowingTest(unittest.TestCase):
                 time_s = index / 200.0
                 window = preprocessor.ingest(TelemetryFrame(
                     timestamp_s=time_s,
-                    acceleration_mps2=(time_s, 2.0, 3.0),
-                    gyroscope_rps=(4.0, 5.0, 6.0),
-                    magnetometer_ut=(7.0, 8.0, 9.0),
+                    linear_acceleration_vehicle_mps2=(time_s, 2.0, 3.0),
+                    gyroscope_vehicle_rps=(4.0, 5.0, 6.0),
+                    magnetic_direction_vehicle=(7.0, 8.0, 9.0),
                 ))
             self.assertIsNotNone(window)
             assert window is not None
