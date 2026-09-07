@@ -138,7 +138,6 @@ class NavigationScreen extends StatelessWidget {
           onSearch: controller.toggleRouteEditor,
         ),
         if (controller.routeEditorVisible) const _RouteEditor(),
-        if (isLost) const _GpsLostBanner(),
         Expanded(child: _NavigationMap(snapshot: snapshot)),
       ],
     );
@@ -264,27 +263,6 @@ class _RouteRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white70)),
               ])),
-        ]),
-      );
-}
-
-class _GpsLostBanner extends StatelessWidget {
-  const _GpsLostBanner();
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        margin: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        decoration: BoxDecoration(
-            color: const Color(0xFF681614),
-            borderRadius: BorderRadius.circular(22)),
-        child:
-            const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.location_off_rounded, color: _red),
-          SizedBox(width: 10),
-          Text('GPS SIGNAL LOST',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
         ]),
       );
 }

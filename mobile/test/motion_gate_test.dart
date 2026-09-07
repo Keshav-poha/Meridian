@@ -12,6 +12,7 @@ void main() {
         accelerometer: const Axis3(0.04, -0.02, 9.807),
         gyroscope: const Axis3(0.001, -0.001, 0.0),
         gnssReportsMotion: false,
+        vehicleMotionArmed: false,
       );
     }
     expect(stationary, isTrue);
@@ -23,6 +24,7 @@ void main() {
       accelerometer: const Axis3(0.02, 0.01, 9.807),
       gyroscope: const Axis3(0.001, 0.0, 0.0),
       gnssReportsMotion: true,
+      vehicleMotionArmed: true,
     );
     expect(stationary, isFalse);
   });
@@ -62,6 +64,7 @@ void main() {
         accelerometer: const Axis3(0, 0, 18),
         gyroscope: const Axis3(0, 0, 0),
         gnssReportsMotion: false,
+        vehicleMotionArmed: false,
       ),
       isFalse,
     );
@@ -71,9 +74,29 @@ void main() {
         accelerometer: const Axis3(0, 0, 9.80665),
         gyroscope: const Axis3(0, 0, 0),
         gnssReportsMotion: false,
+        vehicleMotionArmed: false,
       ),
       isFalse,
     );
+  });
+
+  test('keeps a GNSS-armed vehicle moving through a smooth GNSS blackout', () {
+    final gate = MotionGate(requiredStillSamples: 1);
+
+    // Constant-speed driving has no reliable inertial signature beyond
+    // gravity and a near-zero yaw rate. It must not freeze the DR pose after
+    // GNSS becomes unavailable.
+    for (var index = 0; index < 20; index++) {
+      expect(
+        gate.update(
+          accelerometer: const Axis3(0.02, -0.01, 9.807),
+          gyroscope: const Axis3(0.001, 0.0, -0.001),
+          gnssReportsMotion: false,
+          vehicleMotionArmed: true,
+        ),
+        isFalse,
+      );
+    }
   });
 
   test('rejects a persistently out-of-distribution phone IMU window', () {
@@ -99,7 +122,8 @@ void main() {
 
     expect(gate.awaitingFreshFix, isTrue);
     expect(gate.accept(loss), isFalse);
-    expect(gate.accept(loss.subtract(const Duration(milliseconds: 1))), isFalse);
+    expect(
+        gate.accept(loss.subtract(const Duration(milliseconds: 1))), isFalse);
     expect(gate.awaitingFreshFix, isTrue);
     expect(gate.accept(loss.add(const Duration(milliseconds: 1))), isTrue);
     expect(gate.awaitingFreshFix, isFalse);

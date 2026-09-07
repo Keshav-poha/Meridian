@@ -7,7 +7,10 @@ import '../domain/telemetry_snapshot.dart';
 /// The driving-only IO-VNBD model has no parked-phone examples, so its output
 /// must not by itself start a trajectory when gravity is stable and angular
 /// rate is negligible. GNSS speed, when present, vetoes this gate in the live
-/// engine so smooth constant-speed driving remains navigable.
+/// engine so smooth constant-speed driving remains navigable. A vehicle that
+/// was already GNSS-confirmed as moving keeps that state during a GNSS
+/// blackout: a phone IMU cannot distinguish a stopped vehicle from one that is
+/// cruising steadily using only near-gravity acceleration and a low yaw rate.
 class MotionGate {
   MotionGate({this.requiredStillSamples = 10, this.shockCooldownSamples = 20});
 
@@ -27,6 +30,7 @@ class MotionGate {
     required Axis3 accelerometer,
     required Axis3 gyroscope,
     required bool gnssReportsMotion,
+    required bool vehicleMotionArmed,
     bool externalMotionAnomaly = false,
   }) {
     final accelerationMagnitude = _magnitude(accelerometer);
@@ -47,7 +51,16 @@ class MotionGate {
     final gravityStable =
         (accelerationMagnitude - 9.80665).abs() <= _gravityToleranceMps2;
     final angularlyStill = angularRateMagnitude <= _angularRateToleranceRps;
-    if (gravityStable && angularlyStill && !gnssReportsMotion) {
+    // Once GNSS has confirmed that this is a moving vehicle, retain that
+    // context through a dropout. Without this guard, steady motorway driving
+    // is falsely classified as stationary after a second and the INS path
+    // freezes at the last GNSS coordinate. The motion latch is deliberately
+    // cleared only by multiple fresh GNSS stopped observations after recovery.
+    if (gnssReportsMotion || vehicleMotionArmed) {
+      _stillSamples = 0;
+      return false;
+    }
+    if (gravityStable && angularlyStill) {
       _stillSamples =
           (_stillSamples + 1).clamp(0, requiredStillSamples).toInt();
     } else {

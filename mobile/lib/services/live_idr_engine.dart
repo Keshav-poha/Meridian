@@ -491,6 +491,7 @@ class LiveIdrEngine implements IdrEngine {
       accelerometer: _accelerometer,
       gyroscope: _gyroscope,
       gnssReportsMotion: gnssReportsMotion,
+      vehicleMotionArmed: _vehicleMotionArmed,
       externalMotionAnomaly: _motionAnomaly,
     );
     final mode = _navigationMode(freshFix, now);
