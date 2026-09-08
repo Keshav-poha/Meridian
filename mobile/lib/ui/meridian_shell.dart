@@ -28,7 +28,6 @@ class MeridianShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
-    if (controller.booting) return const MeridianSplashScreen();
     final Widget page = switch (controller.tab) {
       MeridianTab.navigation => const NavigationScreen(),
       MeridianTab.developer => const DeveloperModeScreen(),
