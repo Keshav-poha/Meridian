@@ -9,6 +9,7 @@ import 'idr_engine.dart';
 import 'ins_speed_filter.dart';
 import 'motion_gate.dart';
 import 'native_gnss_stream.dart';
+import 'road_constrained_matcher.dart';
 import 'tflite_velocity_estimator.dart';
 import 'trip_recorder.dart';
 
@@ -43,6 +44,7 @@ class LiveIdrEngine implements IdrEngine {
   final VehicleMotionLatch _vehicleMotionLatch = VehicleMotionLatch();
   final GnssRecoveryGate _gnssRecoveryGate = GnssRecoveryGate();
   final InsSpeedFilter _insSpeedFilter = InsSpeedFilter();
+  final RoadConstrainedMatcher _roadMatcher = RoadConstrainedMatcher();
   final TripRecorder _tripRecorder = TripRecorder();
   final NativeGnssStream _nativeGnssStream = NativeGnssStream();
 
@@ -104,6 +106,7 @@ class LiveIdrEngine implements IdrEngine {
     // A restarted navigation session must not inherit a speed anchor from a
     // previous trip before it receives a new measured GNSS speed.
     _insSpeedFilter.reset();
+    unawaited(_roadMatcher.initialise());
     final lifecycleGeneration = ++_lifecycleGeneration;
     try {
       // Raw sensors and the 10 Hz ticker are the minimal live runtime.  Start
@@ -370,6 +373,12 @@ class LiveIdrEngine implements IdrEngine {
       final fix = _LocalPosition(position.latitude, position.longitude);
       _lastAccurate = fix;
       _predicted ??= fix;
+      // Cache road geometry only while a real GNSS observation is accepted.
+      // The matcher never changes this GNSS-authoritative position.
+      unawaited(_roadMatcher.observeGnss(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      ));
     }
     _lastNavigationGnssReceiptAt = now;
     _tick();
@@ -499,10 +508,8 @@ class LiveIdrEngine implements IdrEngine {
     );
     final mode = _navigationMode(freshFix, now);
     final isDrMode = mode == NavigationMode.deadReckoning || !_gnssEnabled;
-    final insPropagationReady = isDrMode &&
-        !_stationary &&
-        inferred != null &&
-        inferred.sensorsFresh;
+    final insPropagationReady =
+        isDrMode && !_stationary && inferred != null && inferred.sensorsFresh;
 
     // Zero-Velocity Update (ZUPT): immediately stop speed when vehicle is at rest.
     // In GNSS-aided mode, GNSS speed is the primary reference.
@@ -565,6 +572,26 @@ class LiveIdrEngine implements IdrEngine {
         dt,
         countDrDistance: mode == NavigationMode.deadReckoning,
       );
+      // Road constraints are deliberately limited to GNSS-denied propagation.
+      // A valid GNSS fix can legitimately be off-road (parking, walking,
+      // service lanes), so aiding and recovery positions always remain raw.
+      if (mode == NavigationMode.deadReckoning) {
+        final predicted = _predicted;
+        if (predicted != null) {
+          final constrained = _roadMatcher.constrain(
+            latitude: predicted.latitude,
+            longitude: predicted.longitude,
+            headingDeg: _headingDegrees,
+            speedMps: _speedMps,
+          );
+          if (constrained.matched) {
+            _predicted = _LocalPosition(
+              constrained.latitude,
+              constrained.longitude,
+            );
+          }
+        }
+      }
     }
     _setPredictionConfidence(inferred, freshFix, mode, now);
     final display = _displayPosition(mode, now);

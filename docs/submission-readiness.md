@@ -26,7 +26,7 @@ These were not changed as part of documentation/organization work:
 ## Evidence and compliance status
 
 - The required IO-VNBD position plot, speed plot, drift plot, metrics CSV/JSON, and trajectory are present as tracked files in [`docs/benchmarks/iovnbd-driver-a-s3c-stage12/`](benchmarks/iovnbd-driver-a-s3c-stage12/).
-- The README claims were checked against source code and tracked benchmark metrics; no second dataset, live UKF, live runtime map matcher, or real road-validation result is claimed.
+- The README claims were checked against source code and tracked benchmark metrics; no second dataset, live UKF, causal HMM map matcher, or real road-validation result is claimed.
 - See [`docs/compliance-matrix.md`](compliance-matrix.md) for each requirement marked complete, partial, or pending with its proof location.
 
 ## Team checks before submission

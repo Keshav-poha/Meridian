@@ -20,7 +20,7 @@ The evaluator-facing report, requirement coverage, architecture, feature summary
 | --- | --- |
 | In-vehicle mount calibration & independence | Gravity-vector leveling provides instant pitch/roll estimation; vehicle yaw rate is extracted mount-independently via vertical angular rate projection ($\vec{\omega} \cdot \hat{g}$), which is invariant to phone orientation. Optional GNSS course can refine horizontal alignment, but is not required to begin dead reckoning. |
 | AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN uses 2-second, 9-channel vehicle-frame IMU windows. The speed engine supports standalone unanchored propagation when GNSS is disabled, anchors to GNSS speed when available, and clamps to zero on stationary rest (ZUPT); no OBD-II input is used. |
-| Map matching with non-holonomic constraints | Forward-only NHC integration is implemented. A fail-closed OSM HMM/Viterbi matcher is validated offline; it is not yet wired into the mobile or edge runtime. |
+| Map matching with non-holonomic constraints | Forward-only NHC integration is implemented. The mobile runtime persistently caches visited map tiles and nearby OSM road geometry while GNSS is available, then applies a fail-closed distance, ambiguity, and heading gate only to dead-reckoning predictions. Raw GNSS is never snapped, so valid walking, parking, and off-road positions remain intact. The HMM/Viterbi matcher remains an offline evaluation component. |
 | GNSS + INS fusion | The live runtime keeps Flutter's best-for-navigation Android stream as the primary source, accepts valid degraded navigation fixes separately from tighter aiding fixes, and smoothly transitions to mount-independent dead reckoning during outages. A live EKF/UKF measurement-update implementation is still pending. |
 | Seamless GNSS-loss/reacquisition switching | Mobile transitions seamlessly between GNSS-aided, DR, and a 500 ms reacquisition blend, continuing dead reckoning even when GNSS is disabled from cold start. Physical moving-drive latency measurement is pending. |
 | Real-time navigation UI | Flutter/Dart MERIDIAN provides the required splash, map, route controls, GPS-lost state, Developer Mode, and More screens. |
@@ -83,14 +83,14 @@ flowchart LR
 - Flutter/Dart: `sensors_plus`, `geolocator`, `flutter_map`, `provider`, and `tflite_flutter`.
 - Python: NumPy, pandas, PyTorch, ONNX, ONNX Runtime, and optional matplotlib/scikit-learn tooling.
 - Models: PyTorch training; TFLite for mobile and ONNX for the portable edge reference.
-- Maps: OpenStreetMap road geometry for the offline safe matcher and OpenStreetMap raster tiles in the mobile view.
+- Maps: OpenStreetMap raster tiles and nearby road geometry cached by the mobile runtime; an offline HMM/Viterbi matcher is retained for evaluation.
 - Contracts: JSON feature specification, telemetry schema, and hash-bound model manifests under `shared/`.
 
 ## Datasets and map data
 
 - [IO-VNBD](https://github.com/onyekpeu/IO-VNBD) — public phone/vehicle records used for timestamp synchronization, mount calibration, velocity training, and the tracked Driver A S3c replay. Raw data is downloaded locally and is not committed.
 - [STRIDE](https://doi.org/10.6084/m9.figshare.25460755.v4) — CC BY 4.0 smartphone road-safety recordings used as secondary training-domain supervision for the v2 velocity model. Raw data is downloaded locally and is not committed.
-- [OpenStreetMap](https://www.openstreetmap.org/copyright) — road-map source used by the offline matcher and mobile map tiles. The app must retain visible OpenStreetMap attribution in public/demo builds.
+- [OpenStreetMap](https://www.openstreetmap.org/copyright) — road-map source used by the offline matcher, cached mobile road geometry, and mobile map tiles. The app retains visible OpenStreetMap attribution in public/demo builds.
 
 See [third-party notices](docs/third-party-notices.md) for upstream data, map, and dependency attribution boundaries.
 

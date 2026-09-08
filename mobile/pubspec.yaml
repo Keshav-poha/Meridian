@@ -10,8 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  dio_cache_interceptor: ^4.0.0
   flutter_map: ^7.0.2
+  flutter_map_cache: ^2.1.0
   geolocator: ^13.0.2
+  http_cache_file_store: ^2.0.0
   latlong2: ^0.9.1
   sensors_plus: ^6.1.1
   provider: ^6.1.2

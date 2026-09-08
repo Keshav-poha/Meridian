@@ -29,3 +29,24 @@ and a causal fixed-lag filter rather than a full offline Viterbi decode.
 `hmm_map_match` remains as a backwards-compatible coordinate wrapper. New code
 should call `safe_hmm_map_match` and propagate its `accepted`, `confidence`, and
 `rejection_reasons` values to the UI or log.
+
+## Mobile runtime policy
+
+The mobile runtime uses the same fail-closed principle with a lightweight local
+segment matcher. While a valid GNSS position is accepted, it may cache nearby
+eligible OSM road geometry on the device. During a GNSS outage, it considers a
+dead-reckoning prediction for a road constraint only when all of the following
+hold:
+
+1. The segment is within **18 m** of the prediction.
+2. A different candidate road is at least **8 m** farther away.
+3. At speeds of **1.5 m/s** or greater, the undirected road bearing is within
+   **50 degrees** of the predicted heading.
+
+The most recently accepted road may be retained only when it is within 4 m of
+the best candidate. If no cached geometry exists, a request fails, or any safety
+gate rejects the candidate, the raw inertial prediction is shown unchanged.
+
+Raw GNSS positions are never road-constrained. This deliberately preserves
+legitimate off-road locations such as walking paths, parking areas, and service
+accesses even if they are absent from the cached road geometry.

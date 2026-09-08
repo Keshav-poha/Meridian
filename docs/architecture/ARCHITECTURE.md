@@ -14,7 +14,7 @@ The system combines a smartphone's inertial sensors with GNSS when available, wi
 | Shared feature contract | Defines gravity-compensated vehicle-frame IMU features, model normalization, telemetry, and portable model manifests. | Version `0.2.0`; used by mobile, training, and edge reference. |
 | Offline training and evaluation | Synchronizes IO-VNBD data, calibrates mounts, trains the velocity prior, exports models, and produces reproducible benchmark evidence. | Uses the held-out Driver A S3c Stage 12 replay. |
 | Edge reference | Validates and resamples external IMU input before ONNX inference. | Velocity reference is available; a complete high-rate navigation stack remains future integration work. |
-| Offline map matcher | Applies road geometry and non-holonomic constraints through a fail-closed HMM/Viterbi policy. | Validated offline; not yet connected to the live mobile/edge path. |
+| Map matching | Mobile caches nearby road geometry while valid GNSS is available and applies a fail-closed local segment constraint during dead reckoning. HMM/Viterbi remains an offline evaluation policy. | Mobile local constraint is live; causal HMM and edge integration remain future work. |
 
 ## Signal-processing and navigation flow
 
@@ -46,7 +46,7 @@ flowchart LR
 
 - The velocity prior is structurally limited to 0–45 m/s and may adjust only the rate of change of a GNSS-anchored speed state; it never resets speed to its absolute prediction.
 - Stale, out-of-order, low-confidence, or implausible GNSS measurements are rejected or treated as availability heartbeats without rewinding the navigation state.
-- A map match is optional and fail-closed: rejected candidates leave the raw inertial position intact.
+- A map match is optional and fail-closed: rejected candidates leave the raw inertial position intact. GNSS observations are never map-snapped.
 - Offline replay must use pre-outage calibration only and mask all reference labels during propagation.
 - The SIH offline acceptance ceiling is endpoint drift below 10% of total distance travelled during a simulated GNSS outage.
 

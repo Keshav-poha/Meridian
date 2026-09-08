@@ -31,10 +31,15 @@ The first run requires location permission. Current, valid Android fixes up to
 100 m accuracy keep navigation available; only fixes at 25 m or better are
 used for sensitive aiding/calibration. A repeated stationary timestamp is
 treated as a healthy stream heartbeat when the position remains plausible.
-The map uses OpenStreetMap tiles, so it requires a network connection;
-navigation prediction continues when GNSS is disabled from Developer Mode. That
-toggle keeps raw physical GNSS available only for the comparison card and never
-feeds it into the displayed prediction.
+The map persistently caches tiles that have already been viewed, allowing those
+areas to remain visible when the network is unavailable. While valid GNSS is
+available, the app also caches nearby road geometry for use during a subsequent
+outage. Road constraints run only on dead-reckoning predictions and fail open
+when the road candidate is distant, ambiguous, or heading-inconsistent. Raw
+GNSS is never snapped, so valid walking, parking, and off-road positions remain
+unchanged. Navigation prediction continues when GNSS is disabled from Developer
+Mode. That toggle keeps raw physical GNSS available only for the comparison card
+and never feeds it into the displayed prediction.
 
 ## Verify
 

@@ -46,7 +46,7 @@ The measured 5.08% endpoint drift is below the SIH offline threshold of 10%. The
 
 MERIDIAN has a verified offline velocity and GNSS-anchored dead-reckoning result, a working Android application, and a portable velocity-inference reference. The following boundaries are kept explicit:
 
-- The OpenStreetMap HMM matcher is validated offline but is not yet connected to the mobile or edge runtime.
+- The mobile runtime has a conservative local road-segment constraint for dead reckoning, but the HMM matcher remains offline and edge map matching is not yet integrated.
 - The current live fusion state is GNSS-anchored inertial integration with bounded learned residuals. It is not a completed live EKF or UKF measurement-update implementation.
 - The 10 Hz mobile loop is configured in the application. The external-IMU reference accepts 200 Hz input, but a complete 200 Hz FOG navigation engine remains an integration task.
 - A fixed-mount real-road blackout evaluation is still needed for physical drift, update-rate, and transition-latency claims.

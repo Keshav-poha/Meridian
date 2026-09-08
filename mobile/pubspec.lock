@@ -81,6 +81,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.0"
+  dio:
+    dependency: transitive
+    description:
+      name: dio
+      sha256: "852ec3b48cc431ac04fff978413c541502b67ffc3e26921e74e3d994694192c1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "5.11.1"
+  dio_cache_interceptor:
+    dependency: "direct main"
+    description:
+      name: dio_cache_interceptor
+      sha256: "9472f9f3dcaa384ae68e60606c1d04e6314dea5eab39f18d94ff9b0a300dbbe4"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.7"
+  dio_web_adapter:
+    dependency: transitive
+    description:
+      name: dio_web_adapter
+      sha256: "3a1b2cd7be71086f38504956e3ebcd2837288d231ff454bafa78021244102bfc"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.2"
   fake_async:
     dependency: transitive
     description:
@@ -126,6 +150,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.2"
+  flutter_map_cache:
+    dependency: "direct main"
+    description:
+      name: flutter_map_cache
+      sha256: "4ec2f24db456dddcff3370b73efd7e9b9fddf65b2fb61b76b03185ff2682f026"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -200,6 +232,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.6.0"
+  http_cache_core:
+    dependency: transitive
+    description:
+      name: http_cache_core
+      sha256: d6de4ca6680e70f4eacd79e073d6a73734eb1da86305409e495adfabf404eddf
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.4"
+  http_cache_file_store:
+    dependency: "direct main"
+    description:
+      name: http_cache_file_store
+      sha256: b83bc178226d82a52f56b97801639ff8d94caeaf5464d25cc96082015111f375
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.2"
   http_parser:
     dependency: transitive
     description:
@@ -336,6 +384,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  mime:
+    dependency: transitive
+    description:
+      name: mime
+      sha256: bd47de35f07e27267e69c8c8b22edf9473bfee170a60d60fcc93730c5144b7f6
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.1.0"
   nested:
     dependency: transitive
     description:
@@ -533,6 +589,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  synchronized:
+    dependency: transitive
+    description:
+      name: synchronized
+      sha256: "3a7b5d17422dd0f8d5c6c14feaa5a1c65638b9455f871a96f08437562c046931"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.4.1+2"
   term_glyph:
     dependency: transitive
     description:
@@ -630,5 +694,5 @@ packages:
     source: hosted
     version: "3.1.4"
 sdks:
-  dart: ">=3.11.0 <4.0.0"
+  dart: ">=3.12.0 <4.0.0"
   flutter: ">=3.38.4"

@@ -28,7 +28,7 @@ The navigation model propagates forward motion and calibrated heading while forc
 
 ### Conservative road matching
 
-The offline map matcher combines HMM/Viterbi road candidates with maximum-distance, ambiguity, and heading checks. It is designed to reject an uncertain snap rather than place a vehicle on a nearby but incorrect road. It remains an offline component until a causal mobile or edge integration is completed.
+The mobile runtime persistently caches nearby OSM road geometry while GNSS is valid, then applies a local distance, ambiguity, and heading gate only to dead-reckoning predictions. It rejects an uncertain snap rather than place a vehicle on a nearby but incorrect road. Raw GNSS is never constrained, preserving legitimate walking, parking, and off-road positions. The HMM/Viterbi matcher remains an offline evaluation component; causal HMM and edge integration are still pending.
 
 ### Mobile and edge deployment
 
@@ -51,4 +51,4 @@ The Flutter app runs a TFLite model locally and exposes navigation and telemetry
 
 ## Current boundaries
 
-The additional safeguards are intended to prevent unsupported claims. The repository does not claim that the current model has been trained on a collected multi-device negative-motion corpus, that the offline map matcher is live in the mobile app, or that a finished high-rate FOG navigation system exists. Fixed-mount road validation is required before presenting the offline benchmark as real-world performance.
+The additional safeguards are intended to prevent unsupported claims. The repository does not claim that the current model has been trained on a collected multi-device negative-motion corpus, that a causal HMM road matcher is live in the mobile app, or that a finished high-rate FOG navigation system exists. Fixed-mount road validation is required before presenting the offline benchmark as real-world performance.

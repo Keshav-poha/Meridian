@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
 import 'package:flutter/material.dart' hide NavigationMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cache/flutter_map_cache.dart';
 import 'package:geolocator/geolocator.dart' show Geolocator;
+import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:latlong2/latlong.dart' show LatLng;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../domain/telemetry_snapshot.dart';
@@ -325,7 +330,21 @@ class _NavigationMap extends StatefulWidget {
 
 class _NavigationMapState extends State<_NavigationMap> {
   final MapController _mapController = MapController();
+  late final Future<CacheStore> _tileCacheStore;
   NavigationMode? _lastMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _tileCacheStore = _createTileCacheStore();
+  }
+
+  static Future<CacheStore> _createTileCacheStore() async {
+    final directory = await getApplicationSupportDirectory();
+    return FileCacheStore(
+      '${directory.path}${Platform.pathSeparator}map_tiles',
+    );
+  }
 
   @override
   void didUpdateWidget(covariant _NavigationMap oldWidget) {
@@ -401,44 +420,54 @@ class _NavigationMapState extends State<_NavigationMap> {
           Positioned.fill(
             child: const CustomPaint(painter: _TacticalGridPainter()),
           ),
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: mapCenter,
-              initialZoom: current == null ? 4.3 : 17,
-              onPositionChanged: (camera, hasGesture) {
-                if (hasGesture) controller.setAutoFollow(false);
-              },
-              onLongPress: (_, point) => controller.setDestination(point),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.meridian.idr',
+          FutureBuilder<CacheStore>(
+            future: _tileCacheStore,
+            builder: (context, cacheSnapshot) => FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: mapCenter,
+                initialZoom: current == null ? 4.3 : 17,
+                onPositionChanged: (camera, hasGesture) {
+                  if (hasGesture) controller.setAutoFollow(false);
+                },
+                onLongPress: (_, point) => controller.setDestination(point),
               ),
-              // Breadcrumb trail showing vehicle dead-reckoning trajectory
-              if (controller.trajectoryHistory.length >= 2)
-                PolylineLayer(polylines: [
-                  Polyline(
-                    points: controller.trajectoryHistory,
-                    strokeWidth: 4.5,
-                    color: (snapshot?.mode == NavigationMode.deadReckoning
-                            ? const Color(0xFFFF9100)
-                            : _blue)
-                        .withValues(alpha: 0.75),
-                  ),
-                ]),
-              // Destination routing line
-              if (current != null && destination != null)
-                PolylineLayer(polylines: [
-                  Polyline(
-                    points: [current, destination],
-                    strokeWidth: 5,
-                    color: const Color(0xFF00E5FF),
-                  ),
-                ]),
-              MarkerLayer(markers: markers),
-            ],
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.meridian.idr',
+                  tileProvider: cacheSnapshot.hasData
+                      ? CachedTileProvider(
+                          store: cacheSnapshot.data!,
+                          maxStale: const Duration(days: 30),
+                          hitCacheOnNetworkFailure: true,
+                        )
+                      : null,
+                ),
+                // Breadcrumb trail showing vehicle dead-reckoning trajectory
+                if (controller.trajectoryHistory.length >= 2)
+                  PolylineLayer(polylines: [
+                    Polyline(
+                      points: controller.trajectoryHistory,
+                      strokeWidth: 4.5,
+                      color: (snapshot?.mode == NavigationMode.deadReckoning
+                              ? const Color(0xFFFF9100)
+                              : _blue)
+                          .withValues(alpha: 0.75),
+                    ),
+                  ]),
+                // Destination routing line
+                if (current != null && destination != null)
+                  PolylineLayer(polylines: [
+                    Polyline(
+                      points: [current, destination],
+                      strokeWidth: 5,
+                      color: const Color(0xFF00E5FF),
+                    ),
+                  ]),
+                MarkerLayer(markers: markers),
+              ],
+            ),
           ),
 
           // Floating Action Controls: Recenter, Heading-Up, and Quick Outage Simulator
@@ -503,7 +532,8 @@ class _NavigationMapState extends State<_NavigationMap> {
                     tooltip: 'Recenter to current location',
                     icon: Icon(
                       Icons.my_location_rounded,
-                      color: controller.autoFollow ? Colors.white60 : Colors.white,
+                      color:
+                          controller.autoFollow ? Colors.white60 : Colors.white,
                       size: 24,
                     ),
                     onPressed: () {
@@ -585,8 +615,8 @@ class _WaitingForPosition extends StatelessWidget {
   Widget build(BuildContext context) {
     final isPermissionIssue =
         error?.toLowerCase().contains('permission') == true ||
-        status.toLowerCase().contains('permission') == true ||
-        status.toLowerCase().contains('settings') == true;
+            status.toLowerCase().contains('permission') == true ||
+            status.toLowerCase().contains('settings') == true;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -679,10 +709,12 @@ class _Stat extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Column(children: [
-            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text(label,
+                style: const TextStyle(color: Colors.white70, fontSize: 11)),
             const SizedBox(height: 3),
             Text(value,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
           ]),
         ),
       );
@@ -764,7 +796,8 @@ class _TacticalGridPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF0D1017));
+    canvas.drawRect(
+        Offset.zero & size, Paint()..color = const Color(0xFF0D1017));
     final gridPaint = Paint()
       ..color = const Color(0xFF1B2230)
       ..strokeWidth = 1.0;
@@ -1226,8 +1259,8 @@ class MoreOptionsScreen extends StatelessWidget {
               '• Zero-Velocity Updates (ZUPT) & Gyro Bias Estimation\n'
               '• Smooth GNSS Reacquisition Blending\n\n'
               'SIH Problem Statement 26168 (ISRO)',
-              style: TextStyle(
-                  fontSize: 13, color: Colors.white70, height: 1.4),
+              style:
+                  TextStyle(fontSize: 13, color: Colors.white70, height: 1.4),
             ),
           ],
         ),
