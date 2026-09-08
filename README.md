@@ -12,7 +12,7 @@ MERIDIAN is a reproducible IMU/GNSS replay and deployment pipeline. It synchroni
 
 ## SIH submission documents
 
-The evaluator-facing report, requirement coverage, architecture, feature summary, benchmark evidence, deployment guide, and submission checklist are collected in [`docs/submission/`](docs/submission/README.md). The packet links each claim to the corresponding implementation or tracked evidence and identifies work that remains field-validation or integration work.
+The evaluator-facing report, requirement coverage, architecture, feature summary, benchmark evidence, deployment guide, and submission checklist are collected in [`submission/`](submission/README.md). The packet links each claim to the corresponding implementation or tracked evidence and identifies work that remains field-validation or integration work.
 
 ## Core features
 
@@ -57,7 +57,7 @@ See [detailed test results](docs/test-results.md), [the technical approach](docs
 
 ## Interface renders
 
-Clean presentation renders for active navigation, GNSS blackout handling, and Developer Mode are available in [`docs/screenshots/`](docs/screenshots/README.md). They illustrate the interface only; the measured navigation evidence is in [the benchmark deliverable](docs/benchmarks/README.md).
+Clean presentation renders for active navigation, GNSS blackout handling, and Developer Mode belong in [`assets/screenshots/`](assets/screenshots/README.md). They illustrate the interface only; the measured navigation evidence is in [the benchmark deliverable](docs/benchmarks/README.md).
 
 ## Architecture
 
@@ -102,13 +102,16 @@ MERIDIAN/
 ├── ml/                  IO-VNBD ingestion, training, replay, exports, evaluation
 ├── edge/                Verified Python ONNX Runtime reference and C++ integration seam
 ├── shared/              Feature contract, telemetry/model schemas, portable models
+├── assets/
+│   └── screenshots/     Reviewed, non-sensitive demonstration captures
 ├── docs/
 │   ├── benchmarks/      Tracked IO-VNBD position plot, metrics, trajectory
 │   ├── design/          UI design reference material
 │   ├── validation/      Real-world drive protocol
-│   ├── safety/          Map-matching safety policy
-│   └── screenshots/     Reviewed, non-sensitive demo captures only
+│   └── safety/          Map-matching safety policy
+├── submission/          Evaluator-facing reports, deployment guide, checklist
 ├── README.md
+├── SUBMISSION_GUIDE.md
 ├── LICENSE
 └── .gitignore
 ```

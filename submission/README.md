@@ -17,11 +17,11 @@ This directory is the review entry point for MERIDIAN, an Intelligent Dead Recko
 
 The current deployable ONNX model was evaluated on the recording-disjoint IO-VNBD Driver A S3c drive with a 59.9-second simulated GNSS blackout. The replay reported 94.88 m endpoint error over 1,867.62 m, or **5.08% drift** at 10 Hz. This is below the SIH offline 10% drift ceiling. The result is an offline replay and is not presented as a fixed-mount road result.
 
-- [Benchmark index and reproduction steps](../benchmarks/README.md)
-- [Position trajectory](../benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg)
-- [Speed tracking plot](../benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg)
-- [Drift versus distance plot](../benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg)
-- [Metrics and model provenance](../benchmarks/iovnbd-driver-a-s3c-stage12/metrics.json)
+- [Benchmark index and reproduction steps](../docs/benchmarks/README.md)
+- [Position trajectory](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg)
+- [Speed tracking plot](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg)
+- [Drift versus distance plot](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg)
+- [Metrics and model provenance](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/metrics.json)
 
 ## Suggested review order
 

@@ -71,4 +71,4 @@ The mobile path targets a configured 10 Hz update loop and runs the TFLite model
 - Calibration and evaluation are separated in the held-out replay. Calibration samples end before the simulated outage.
 - Model artifacts carry hashes and provenance so the evaluator can verify that the tested ONNX binary is the deployed artifact.
 
-For implementation-level detail, see the [architecture specification](../architecture/ARCHITECTURE.md) and [technical approach](../technical-approach.md).
+For implementation-level detail, see the [architecture specification](../docs/architecture/ARCHITECTURE.md) and [technical approach](../docs/technical-approach.md).

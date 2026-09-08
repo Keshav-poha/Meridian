@@ -57,7 +57,7 @@ $env:PYTHONPATH = "ml/src;edge/python/src"
 py -3.13 ml/scripts/stage12_evaluate.py
 ```
 
-The evaluator loads `shared/models/velocity_cnn.onnx`, validates the manifest and hashes, and writes position, speed, drift, metrics, and trajectory artifacts. Review the outputs in [the benchmark directory](../benchmarks/README.md).
+The evaluator loads `shared/models/velocity_cnn.onnx`, validates the manifest and hashes, and writes position, speed, drift, metrics, and trajectory artifacts. Review the outputs in [the benchmark directory](../docs/benchmarks/README.md).
 
 ## Fixed-mount field test
 
@@ -67,4 +67,4 @@ The controlled field test is separate from the offline benchmark. Mount the phon
 py -3.13 ml/scripts/evaluate_live_drive.py <trip-log.jsonl> --windows 10,30,60 --output-dir ml/reports/live_drive
 ```
 
-Follow the [physical-drive validation guide](../validation/real-world-validation.md) for safe collection rules, required negative-motion captures, and interpretation of the results.
+Follow the [physical-drive validation guide](../docs/validation/real-world-validation.md) for safe collection rules, required negative-motion captures, and interpretation of the results.

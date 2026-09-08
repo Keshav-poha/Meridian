@@ -4,7 +4,7 @@
 
 - Preserved the existing top-level implementation layout: `ml/`, `mobile/`, `edge/`, `shared/`, and `docs/` were already correctly scoped.
 - Added the current deployable-model Stage 12 evidence under `docs/benchmarks/iovnbd-driver-a-s3c-stage12/`, including speed and drift plots.
-- Grouped supporting material under `docs/audits/`, `docs/safety/`, `docs/validation/`, and `docs/screenshots/`.
+- Grouped supporting material under `docs/audits/`, `docs/safety/`, and `docs/validation/`; evaluator-facing reports and demonstration captures are available at `submission/` and `assets/screenshots/`.
 - Added a top-level README, MIT license, technical approach, compliance matrix, current test-results report, and reviewed interface renders.
 - Expanded `.gitignore` for local environments, checkpoints, Android signing files, build products, coverage, and secrets.
 - No uncertain files were deleted. Portable ONNX/TFLite models and benchmark evidence remain tracked because they are submission evidence.

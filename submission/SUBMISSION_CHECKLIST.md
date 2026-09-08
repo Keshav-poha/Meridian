@@ -3,7 +3,7 @@
 ## Repository and documentation
 
 - [x] Root project overview and technical architecture are present.
-- [x] SIH submission document index, project report, requirement coverage, architecture, feature summary, evaluation report, deployment guide, and checklist are present in `docs/submission/`.
+- [x] SIH submission document index, project report, requirement coverage, architecture, feature summary, evaluation report, deployment guide, and checklist are present in `submission/`.
 - [x] The repository states implementation boundaries for map matching, live fusion, edge navigation, and physical field validation.
 - [x] OpenStreetMap, IO-VNBD, STRIDE, and software dependency notices are documented.
 - [x] OpenStreetMap attribution is visible in the mobile map view.

@@ -27,12 +27,12 @@ The learned correction improves the endpoint result from 96.34 m to 94.88 m on t
 
 | Artifact | Review purpose |
 | --- | --- |
-| [Position plot](../benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg) | Ground truth, forward-acceleration INS, and GNSS-anchored INS trajectories. |
-| [Speed tracking plot](../benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg) | Ground-truth speed and navigation speed through changing drive conditions. |
-| [Drift versus distance plot](../benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg) | Cumulative drift with the dashed 10% benchmark ceiling. |
-| [Metrics CSV](../benchmarks/iovnbd-driver-a-s3c-stage12/metrics.csv) | Compact numerical result table. |
-| [Metrics JSON](../benchmarks/iovnbd-driver-a-s3c-stage12/metrics.json) | Machine-readable metrics, model hash, calibration evidence, and provenance. |
-| [Trajectory CSV](../benchmarks/iovnbd-driver-a-s3c-stage12/trajectory.csv) | Sample-level reference and estimated trajectory data. |
+| [Position plot](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/position_plot.svg) | Ground truth, forward-acceleration INS, and GNSS-anchored INS trajectories. |
+| [Speed tracking plot](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/speed_tracking_plot.svg) | Ground-truth speed and navigation speed through changing drive conditions. |
+| [Drift versus distance plot](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/drift_vs_distance_plot.svg) | Cumulative drift with the dashed 10% benchmark ceiling. |
+| [Metrics CSV](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/metrics.csv) | Compact numerical result table. |
+| [Metrics JSON](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/metrics.json) | Machine-readable metrics, model hash, calibration evidence, and provenance. |
+| [Trajectory CSV](../docs/benchmarks/iovnbd-driver-a-s3c-stage12/trajectory.csv) | Sample-level reference and estimated trajectory data. |
 
 ## Reproduction
 
@@ -59,7 +59,7 @@ The evaluator checks model provenance before scoring and exits with a failure st
 
 ## Field-validation plan
 
-The next validation step is a real fixed-mount drive. The Developer Mode recorder captures live IMU, GNSS reference, predicted state, confidence, and manual GNSS outage transitions. The field evaluator reports drift and switch timing for 10, 30, and 60-second intervals. The procedure is documented in [the physical-drive validation guide](../validation/real-world-validation.md).
+The next validation step is a real fixed-mount drive. The Developer Mode recorder captures live IMU, GNSS reference, predicted state, confidence, and manual GNSS outage transitions. The field evaluator reports drift and switch timing for 10, 30, and 60-second intervals. The procedure is documented in [the physical-drive validation guide](../docs/validation/real-world-validation.md).
 
 ## Interpretation limits
 

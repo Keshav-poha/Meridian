@@ -66,4 +66,4 @@ MERIDIAN has a verified offline velocity and GNSS-anchored dead-reckoning result
 - [Requirement coverage](PROBLEM_STATEMENT_COVERAGE.md)
 - [System architecture](SYSTEM_ARCHITECTURE.md)
 - [Evaluation and validation](EVALUATION_AND_VALIDATION.md)
-- [Current benchmark evidence](../benchmarks/README.md)
+- [Current benchmark evidence](../docs/benchmarks/README.md)
