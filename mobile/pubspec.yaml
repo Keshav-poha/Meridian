@@ -1,7 +1,7 @@
 name: meridian
 description: GPS-denied navigation client for the MERIDIAN IDR system.
 publish_to: none
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -29,6 +29,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/branding/meridian_compass_logo.png
     - assets/models/velocity_cnn.tflite
     - assets/models/velocity_cnn.normalization.json
     - assets/models/velocity_cnn.tflite.manifest.json

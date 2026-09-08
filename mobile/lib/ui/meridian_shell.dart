@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
 import 'package:flutter/material.dart' hide NavigationMode;
@@ -16,8 +17,8 @@ import '../domain/telemetry_snapshot.dart';
 import '../state/navigation_controller.dart';
 
 const _nearBlack = Color(0xFF070A0F);
-const _panel = Color(0xFF1A1C20);
-const _panelLight = Color(0xFF25272C);
+const _panel = Color(0xB51A2230);
+const _panelLight = Color(0x8A6C7D92);
 const _blue = Color(0xFF2979FF);
 const _red = Color(0xFFE53935);
 
@@ -34,7 +35,24 @@ class MeridianShell extends StatelessWidget {
       MeridianTab.more => const MoreOptionsScreen(),
     };
     return Scaffold(
-      body: SafeArea(child: page),
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.018, 0.01),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          ),
+          child: KeyedSubtree(key: ValueKey(controller.tab), child: page),
+        ),
+      ),
       bottomNavigationBar: const SafeArea(
         top: false,
         child: MeridianBottomNavigation(),
@@ -78,6 +96,15 @@ class _MeridianSplashScreenState extends State<MeridianSplashScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      Transform.scale(
+                        scale: 0.95 + _pulse.value * 0.08,
+                        child: Image.asset(
+                          'assets/branding/meridian_compass_logo.png',
+                          width: 102,
+                          height: 102,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       const Text('MERIDIAN',
                           style: TextStyle(
                             color: _blue,
@@ -157,29 +184,44 @@ class MeridianTopBar extends StatelessWidget {
   final VoidCallback onSearch;
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 72,
-        decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: _panelLight))),
-        child: Row(
-          children: [
-            IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.menu_rounded, size: 34)),
-            Expanded(
-                child: Text(title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 24,
-                    ))),
-            IconButton(
-                onPressed: onSearch,
-                icon: const Icon(Icons.search_rounded, size: 31)),
-            IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.more_vert_rounded, size: 30)),
-          ],
+  Widget build(BuildContext context) => GlassSurface(
+        borderRadius: BorderRadius.zero,
+        blur: 18,
+        child: SizedBox(
+          height: 72,
+          child: Row(
+            children: [
+              IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.menu_rounded, size: 34)),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset('assets/branding/meridian_compass_logo.png',
+                        width: 31, height: 31),
+                    const SizedBox(width: 9),
+                    Flexible(
+                      child: Text(title,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 23,
+                            letterSpacing: 0.4,
+                          )),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                  onPressed: onSearch,
+                  icon: const Icon(Icons.search_rounded, size: 31)),
+              IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.more_vert_rounded, size: 30)),
+            ],
+          ),
         ),
       );
 }
@@ -212,13 +254,9 @@ class _RouteEditor extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      child: Container(
+      child: GlassSurface(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _panel,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: _panelLight),
-        ),
+        borderRadius: BorderRadius.circular(22),
         child: Column(
           children: [
             Row(
@@ -295,12 +333,9 @@ class _RouteRow extends StatelessWidget {
   final String value;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GlassSurface(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-        decoration: BoxDecoration(
-            color: _panel,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: _panelLight)),
+        borderRadius: BorderRadius.circular(22),
         child: Row(children: [
           Icon(icon, color: color, size: 31),
           const SizedBox(width: 12),
@@ -618,13 +653,9 @@ class _WaitingForPosition extends StatelessWidget {
             status.toLowerCase().contains('permission') == true ||
             status.toLowerCase().contains('settings') == true;
 
-    return Container(
+    return GlassSurface(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xE617191D),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _panelLight),
-      ),
+      borderRadius: BorderRadius.circular(18),
       child: Row(children: [
         const SizedBox(
           height: 22,
@@ -672,12 +703,9 @@ class _StatsBar extends StatelessWidget {
             ? '${(speed * 3.6).round()} km/h'
             : '${speed.toStringAsFixed(1)} m/s';
 
-    return Container(
+    return GlassSurface(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-          color: const Color(0xE61E2127),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: _panelLight)),
+      borderRadius: BorderRadius.circular(22),
       child: Row(children: [
         _Stat(
           label: 'Speed (${controller.speedInKmh ? 'km/h' : 'm/s'})',
@@ -1301,9 +1329,9 @@ class MeridianBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
-    return Container(
-      color: Colors.black,
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+    return GlassSurface(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+      padding: const EdgeInsets.fromLTRB(14, 9, 14, 10),
       child: Row(children: [
         _TabButton(
             icon: Icons.map_outlined,
@@ -1337,19 +1365,24 @@ class _TabButton extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => Expanded(
+      child: AnimatedScale(
+          scale: selected ? 1.0 : 0.94,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
           child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, color: selected ? _blue : Colors.white, size: 29),
-              const SizedBox(height: 4),
-              Text(label,
-                  style: TextStyle(
-                      color: selected ? _blue : Colors.white, fontSize: 12)),
-            ])),
-      ));
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(icon, color: selected ? _blue : Colors.white, size: 29),
+                  const SizedBox(height: 4),
+                  Text(label,
+                      style: TextStyle(
+                          color: selected ? _blue : Colors.white,
+                          fontSize: 12)),
+                ])),
+          )));
 }
 
 class _PanelCard extends StatelessWidget {
@@ -1357,12 +1390,9 @@ class _PanelCard extends StatelessWidget {
   final String title;
   final Widget child;
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => GlassSurface(
         padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-            color: _panel,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: _panelLight)),
+        borderRadius: BorderRadius.circular(24),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title,
               style: const TextStyle(
@@ -1370,6 +1400,44 @@ class _PanelCard extends StatelessWidget {
           const SizedBox(height: 20),
           child,
         ]),
+      );
+}
+
+class GlassSurface extends StatelessWidget {
+  const GlassSurface({
+    super.key,
+    required this.child,
+    this.padding,
+    this.borderRadius = const BorderRadius.all(Radius.circular(22)),
+    this.blur = 14,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final BorderRadius borderRadius;
+  final double blur;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: borderRadius,
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: _panel,
+              borderRadius: borderRadius,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 20,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+          ),
+        ),
       );
 }
 

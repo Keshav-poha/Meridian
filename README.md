@@ -2,6 +2,14 @@
 
 Intelligent dead reckoning for GPS-denied road navigation on a phone and a portable edge runtime.
 
+## Evaluator quick access
+
+- [Submission packet](submission/README.md)
+- [Project report](submission/PROJECT_REPORT.md)
+- [Benchmark plots and metrics](docs/benchmarks/README.md)
+- [Architecture specification](docs/architecture/ARCHITECTURE.md)
+- [Application screenshots](assets/screenshots/README.md)
+
 ## Problem Statement
 
 MERIDIAN addresses Smart India Hackathon problem statement **26168**: “AI-ML based Intelligent Dead Reckoning system for seamless navigation,” under the Indian Space Research Organisation (ISRO), Department of Space. It is a Software-category problem in the Smart Vehicles theme. The task is to keep a road vehicle navigable when GNSS becomes unavailable by combining phone IMU data with GNSS when it is available. The solution must estimate motion without OBD-II, constrain the result to how a car can move, and support both mobile and edge deployment.
