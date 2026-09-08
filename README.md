@@ -119,7 +119,6 @@ MERIDIAN/
 │   └── safety/          Map-matching safety policy
 ├── submission/          Evaluator-facing reports, deployment guide, checklist
 ├── README.md
-├── SUBMISSION_GUIDE.md
 ├── LICENSE
 └── .gitignore
 ```
@@ -183,7 +182,3 @@ Team: MERIDIAN
 ## License
 
 This repository is licensed under the [MIT License](LICENSE).
-
-## Submission checks still owned by the team
-
-Before submission, verify the current SIH portal requirements for repository-link format, proposal/PPT and demo-video links, required disclosures, and any rules about how a demo video or narration must be produced. Add only reviewed, non-sensitive screenshots and field logs to the repository.
