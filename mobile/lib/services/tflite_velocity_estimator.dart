@@ -150,15 +150,11 @@ class TfliteVelocityEstimator {
   }
 
   void _append(DateTime timestamp) {
-    // Never construct a two-second input by holding a delayed gyro or
-    // magnetometer sample across fresh accelerometer callbacks. Clearing the
-    // window forces a new contiguous, timestamp-compatible interval.
+    // Accelerometer and gyroscope form the core inertial window.
+    // Allow transient magnetometer delay without wiping the entire inertial window.
     if (_gyroscopeTimestamp == null ||
-        _magnetometerTimestamp == null ||
         timestamp.difference(_gyroscopeTimestamp!).abs() >
-            const Duration(milliseconds: 250) ||
-        timestamp.difference(_magnetometerTimestamp!).abs() >
-            const Duration(milliseconds: 750)) {
+            const Duration(milliseconds: 500)) {
       _samples.clear();
       _latestVehicleFrame = null;
       return;

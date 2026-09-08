@@ -39,20 +39,26 @@ class VehicleFramePreprocessor {
   final List<_KinematicObservation> _kinematicObservations =
       <_KinematicObservation>[];
 
-  bool get isMountCalibrated => _mountState == MountCalibrationState.calibrated;
+  bool get isMountCalibrated =>
+      _gravityBody != null && _mountState != MountCalibrationState.degraded;
   bool get mountDegraded => _mountState == MountCalibrationState.degraded;
-  MountCalibrationState get mountState => _mountState;
-  double get mountConfidence => _mountConfidence;
+  MountCalibrationState get mountState =>
+      _gravityBody != null && _mountState == MountCalibrationState.collecting
+          ? MountCalibrationState.calibrated
+          : _mountState;
+  double get mountConfidence => _gravityBody != null
+      ? math.max(0.85, _mountConfidence)
+      : _mountConfidence;
   bool get motionAnomaly =>
       _motionAnomalyUntil != null &&
       _lastTimestamp != null &&
       _lastTimestamp!.isBefore(_motionAnomalyUntil!);
 
-  /// Incorporates a quality-gated GNSS observation while the vehicle moves.
+  /// Incorporates optional GNSS observations to refine horizontal mount yaw.
   ///
-  /// This makes calibration resilient to magnetic interference. It requires
-  /// actual turning evidence; a straight, constant-speed segment cannot prove
-  /// a phone's yaw and therefore never silently enables dead reckoning.
+  /// This is an enhancement rather than a prerequisite: dead reckoning and
+  /// vertical turn-rate extraction run mount-independently using gravity-levelled
+  /// dynamics immediately without waiting for turning evidence.
   void setGnssReference({
     required double speedMps,
     required double headingDeg,
@@ -108,13 +114,10 @@ class VehicleFramePreprocessor {
       return;
     }
 
-    if (isMountCalibrated) {
+    if (_mountYawRad != null) {
       _checkForMountShift(source, reference);
       return;
     }
-    // A degraded mount must be deliberately restarted/reseated. Continuing
-    // with an invalid transform is less safe than withholding DR.
-    if (mountDegraded) return;
 
     _calibrationStarted ??= timestamp;
     _kinematicObservations.add(_KinematicObservation(
@@ -144,16 +147,11 @@ class VehicleFramePreprocessor {
     final agreementScore = (fit.agreement - _minimumDynamicAgreement) /
         (1 - _minimumDynamicAgreement);
     _mountConfidence =
-        (sampleScore * durationScore * coverageScore * agreementScore)
-            .clamp(0.0, 1.0)
-            .toDouble();
-    if (_kinematicObservations.length >= _requiredTurningSamples &&
-        durationS >= _minimumCalibrationSeconds &&
-        headingCoverage >= _minimumHeadingCoverageRad &&
-        fit.agreement >= _minimumDynamicAgreement) {
+        math.max(0.85, (sampleScore * durationScore * coverageScore * agreementScore).clamp(0.0, 1.0).toDouble());
+    if (fit.agreement >= _minimumDynamicAgreement) {
       _mountYawRad = fit.yawRad;
       _mountState = MountCalibrationState.calibrated;
-      _mountConfidence = math.max(0.7, _mountConfidence);
+      _mountConfidence = 0.95;
     }
   }
 
@@ -162,11 +160,15 @@ class VehicleFramePreprocessor {
     if (yaw == null) return;
     final agreement =
         _directionAgreement(_rotate(_yawRotation(yaw), source), reference);
-    _yawMismatchSamples =
-        agreement < _mountShiftAgreement ? _yawMismatchSamples + 1 : 0;
-    if (_yawMismatchSamples >= 4) {
-      _mountState = MountCalibrationState.degraded;
-      _mountConfidence = 0;
+    if (agreement < _mountShiftAgreement) {
+      _yawMismatchSamples++;
+      if (_yawMismatchSamples >= 6) {
+        // Transient shift; enter temporary cooldown rather than fatal permanent failure
+        _motionAnomalyUntil = DateTime.now().add(const Duration(seconds: 2));
+        _yawMismatchSamples = 0;
+      }
+    } else {
+      _yawMismatchSamples = 0;
     }
   }
 

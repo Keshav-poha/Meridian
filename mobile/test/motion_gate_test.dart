@@ -99,6 +99,21 @@ void main() {
     }
   });
 
+  test('allows stationary ZUPT when an armed vehicle decelerates to zero in an outage', () {
+    final gate = MotionGate(requiredStillSamples: 3);
+    var stationary = false;
+    for (var index = 0; index < 3; index++) {
+      stationary = gate.update(
+        accelerometer: const Axis3(0.01, -0.01, 9.807),
+        gyroscope: const Axis3(0.001, 0.0, 0.0),
+        gnssReportsMotion: false,
+        vehicleMotionArmed: true,
+        currentSpeedMps: 0.0,
+      );
+    }
+    expect(stationary, isTrue);
+  });
+
   test('rejects a persistently out-of-distribution phone IMU window', () {
     final inDistribution = VelocityModelQuality.fromNormalizedWindow(
       List<List<double>>.generate(20, (_) => List<double>.filled(9, 1.0)),

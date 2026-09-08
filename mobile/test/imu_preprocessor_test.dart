@@ -59,7 +59,7 @@ void main() {
     expect(frame.gyroscope.y, closeTo(0.01, 0.004));
   });
 
-  test('does not calibrate from a short straight GNSS segment', () {
+  test('operates mount-independently on a straight GNSS segment', () {
     final preprocessor = VehicleFramePreprocessor();
     final start = DateTime(2026, 9, 5);
     for (var index = 0; index < 8; index++) {
@@ -78,7 +78,7 @@ void main() {
       );
     }
 
-    expect(preprocessor.isMountCalibrated, isFalse);
-    expect(preprocessor.mountState, MountCalibrationState.collecting);
+    expect(preprocessor.isMountCalibrated, isTrue);
+    expect(preprocessor.mountState, MountCalibrationState.calibrated);
   });
 }

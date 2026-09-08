@@ -32,6 +32,7 @@ class MotionGate {
     required bool gnssReportsMotion,
     required bool vehicleMotionArmed,
     bool externalMotionAnomaly = false,
+    double? currentSpeedMps,
   }) {
     final accelerationMagnitude = _magnitude(accelerometer);
     final angularRateMagnitude = _magnitude(gyroscope);
@@ -51,12 +52,11 @@ class MotionGate {
     final gravityStable =
         (accelerationMagnitude - 9.80665).abs() <= _gravityToleranceMps2;
     final angularlyStill = angularRateMagnitude <= _angularRateToleranceRps;
-    // Once GNSS has confirmed that this is a moving vehicle, retain that
-    // context through a dropout. Without this guard, steady motorway driving
-    // is falsely classified as stationary after a second and the INS path
-    // freezes at the last GNSS coordinate. The motion latch is deliberately
-    // cleared only by multiple fresh GNSS stopped observations after recovery.
-    if (gnssReportsMotion || vehicleMotionArmed) {
+    // Smooth constant-speed cruising without IMU jerk must not be falsely frozen.
+    // However, when estimated speed drops near zero, allow stillness to trigger ZUPT.
+    final cruising = vehicleMotionArmed &&
+        (currentSpeedMps == null || currentSpeedMps > 0.4);
+    if (gnssReportsMotion || cruising) {
       _stillSamples = 0;
       return false;
     }
@@ -113,6 +113,11 @@ class VehicleMotionLatch {
   }
 
   bool get armed => _armed;
+
+  void disarm() {
+    _armed = false;
+    _movingEvidence = 0;
+  }
 }
 
 /// Requires a newly timestamped, quality-checked GNSS fix after an aiding

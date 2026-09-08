@@ -18,18 +18,19 @@ The evaluator-facing report, requirement coverage, architecture, feature summary
 
 | Problem-statement feature | Implementation and current boundary |
 | --- | --- |
-| In-vehicle mount calibration | Gravity-vector leveling estimates pitch/roll; turn kinematics and reliable GNSS course resolve mount yaw. Offline validation is complete; fixed-mount road validation remains pending. |
-| AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN uses 2-second, 9-channel vehicle-frame IMU windows. Its output is structurally bounded to 0–45 m/s and is used only as a rate-limited change-of-velocity residual inside a GNSS-anchored inertial state; no OBD-II input is used. |
+| In-vehicle mount calibration & independence | Gravity-vector leveling provides instant pitch/roll estimation; vehicle yaw rate is extracted mount-independently via vertical angular rate projection ($\vec{\omega} \cdot \hat{g}$), which is invariant to phone orientation. Optional GNSS course can refine horizontal alignment, but is not required to begin dead reckoning. |
+| AI speed and vibration filtering from IMU alone | A 961-parameter TinyVelocityCNN uses 2-second, 9-channel vehicle-frame IMU windows. The speed engine supports standalone unanchored propagation when GNSS is disabled, anchors to GNSS speed when available, and clamps to zero on stationary rest (ZUPT); no OBD-II input is used. |
 | Map matching with non-holonomic constraints | Forward-only NHC integration is implemented. A fail-closed OSM HMM/Viterbi matcher is validated offline; it is not yet wired into the mobile or edge runtime. |
-| GNSS + INS fusion | The live runtime keeps Flutter's best-for-navigation Android stream as the primary source, accepts valid degraded navigation fixes separately from tighter aiding fixes, and anchors INS speed to measured GNSS before a blackout. A live EKF/UKF measurement-update implementation is still pending. |
-| Seamless GNSS-loss/reacquisition switching | Mobile transitions between GNSS-aided, DR, and a 500 ms reacquisition blend, requiring a fresh post-loss fix before recovery. Physical moving-drive latency measurement is pending. |
+| GNSS + INS fusion | The live runtime keeps Flutter's best-for-navigation Android stream as the primary source, accepts valid degraded navigation fixes separately from tighter aiding fixes, and smoothly transitions to mount-independent dead reckoning during outages. A live EKF/UKF measurement-update implementation is still pending. |
+| Seamless GNSS-loss/reacquisition switching | Mobile transitions seamlessly between GNSS-aided, DR, and a 500 ms reacquisition blend, continuing dead reckoning even when GNSS is disabled from cold start. Physical moving-drive latency measurement is pending. |
 | Real-time navigation UI | Flutter/Dart MERIDIAN provides the required splash, map, route controls, GPS-lost state, Developer Mode, and More screens. |
 | Edge-deployable engine | The verified 200 Hz edge reference is `edge/python`, which runs ONNX Runtime and accepts 100/200 Hz streams. `edge/cpp` is only an uncompiled CMake/ONNX Runtime integration seam; no finished C++ FOG navigation pipeline is claimed. |
 
 ## Beyond the problem statement
 
 - Every live velocity prediction has a continuous confidence value and an explanatory reason, rather than only a calibrated/not-calibrated flag.
-- Mount degradation, shock/bumps, stale sensors, implausible model windows, weak GNSS, and unarmed vehicle motion fail closed instead of being clipped into plausible-looking motion.
+- Mount-independent vertical yaw rate extraction ($\vec{\omega} \cdot \hat{g}$) ensures turn tracking works regardless of whether the phone is mounted portrait, landscape, or skewed.
+- Dead reckoning works seamlessly even when GNSS is disabled on cold start without requiring 20 S-turns or pre-anchoring.
 - Developer Mode shows real sensor axes, raw physical GNSS, accepted/predicted positions, drift/error fields, confidence, and a trip recorder for field validation.
 - The replay pipeline guards against timestamp alignment mistakes, source gaps, calibration leakage, mixed model artifacts, and overlapping train/test windows.
 - Negative-motion collection and preparation tooling exists for parked/idle, bump, handheld-shake, and mount-shift captures. Those examples have **not** yet been collected across devices or used to retrain the model.

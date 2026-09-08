@@ -34,6 +34,10 @@ class NavigationController extends ChangeNotifier {
   bool tripRecording = false;
   String tripLogLabel = 'drive';
   String? lastTripLogPath;
+  bool autoFollow = true;
+  bool speedInKmh = true;
+  bool headingUp = false;
+  final List<LatLng> trajectoryHistory = <LatLng>[];
   bool _startRequested = false;
   bool _disposed = false;
 
@@ -42,6 +46,7 @@ class NavigationController extends ChangeNotifier {
     _startRequested = true;
     _subscription = _engine.telemetry.listen((next) {
       snapshot = next;
+      _updateTrajectory(next);
       notifyListeners();
     });
 
@@ -106,6 +111,57 @@ class NavigationController extends ChangeNotifier {
     destination = point;
     routeEditorVisible = true;
     notifyListeners();
+  }
+
+  void clearDestination() {
+    destination = null;
+    routeEditorVisible = false;
+    notifyListeners();
+  }
+
+  void setAutoFollow(bool value) {
+    if (autoFollow == value) return;
+    autoFollow = value;
+    notifyListeners();
+  }
+
+  void toggleSpeedUnit() {
+    speedInKmh = !speedInKmh;
+    notifyListeners();
+  }
+
+  void toggleHeadingUp() {
+    headingUp = !headingUp;
+    notifyListeners();
+  }
+
+  double? get distanceToDestinationMeters {
+    final dest = destination;
+    final snap = snapshot;
+    if (dest == null ||
+        snap == null ||
+        !snap.latitudeDeg.isFinite ||
+        !snap.longitudeDeg.isFinite) {
+      return null;
+    }
+    return const Distance().distance(
+      LatLng(snap.latitudeDeg, snap.longitudeDeg),
+      dest,
+    );
+  }
+
+  void _updateTrajectory(TelemetrySnapshot next) {
+    if (!next.latitudeDeg.isFinite || !next.longitudeDeg.isFinite) return;
+    final current = LatLng(next.latitudeDeg, next.longitudeDeg);
+    if (trajectoryHistory.isNotEmpty) {
+      final last = trajectoryHistory.last;
+      final distance = const Distance().distance(last, current);
+      if (distance < 1.2) return;
+    }
+    trajectoryHistory.add(current);
+    if (trajectoryHistory.length > 300) {
+      trajectoryHistory.removeAt(0);
+    }
   }
 
   Future<void> setGnssEnabled(bool enabled) async {

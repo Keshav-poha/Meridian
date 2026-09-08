@@ -25,6 +25,12 @@ class InsSpeedFilter {
     _lastCnnSpeedMps = null;
   }
 
+  /// Clamps speed to zero when stationary (Zero-Velocity Update).
+  void setZeroVelocity() {
+    _speedMps = 0.0;
+    _lastCnnSpeedMps = null;
+  }
+
   void anchorGnssSpeed(double measuredSpeedMps) {
     if (!measuredSpeedMps.isFinite ||
         measuredSpeedMps < 0 ||
@@ -43,13 +49,14 @@ class InsSpeedFilter {
     double? cnnSpeedMps,
     required bool cnnTrusted,
   }) {
-    final previous = _speedMps;
-    if (previous == null ||
-        !dtSeconds.isFinite ||
-        dtSeconds <= 0 ||
-        dtSeconds > 0.25) {
-      return previous;
+    if (!dtSeconds.isFinite || dtSeconds <= 0 || dtSeconds > 0.25) {
+      return _speedMps;
     }
+    // Allow standalone propagation even when GNSS is disabled or unanchored
+    final previous = _speedMps ??
+        (cnnTrusted && cnnSpeedMps != null && cnnSpeedMps.isFinite
+            ? cnnSpeedMps
+            : 0.0);
     final usableAcceleration = forwardAccelerationMps2.isFinite
         ? forwardAccelerationMps2
             .clamp(-_maximumAccelerationMps2, _maximumAccelerationMps2)

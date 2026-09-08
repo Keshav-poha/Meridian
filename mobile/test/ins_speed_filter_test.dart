@@ -79,4 +79,25 @@ void main() {
 
     expect(speed, lessThanOrEqualTo(InsSpeedFilter.maximumSpeedMps));
   });
+
+  test('propagates standalone speed when GNSS is disabled without prior anchor', () {
+    final filter = InsSpeedFilter();
+    // Do NOT call anchorGnssSpeed — simulates starting cold with GNSS disabled
+    final speed = filter.propagate(
+      forwardAccelerationMps2: 2.0,
+      dtSeconds: 0.1,
+      cnnSpeedMps: null,
+      cnnTrusted: false,
+    );
+
+    expect(speed, closeTo(0.2, 1e-9));
+  });
+
+  test('setZeroVelocity clamps speed and resets residual state', () {
+    final filter = InsSpeedFilter();
+    filter.anchorGnssSpeed(15.0);
+    filter.setZeroVelocity();
+
+    expect(filter.speedMps, equals(0.0));
+  });
 }

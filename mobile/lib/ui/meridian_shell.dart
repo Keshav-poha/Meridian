@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart' hide NavigationMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart' show Geolocator;
 import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:provider/provider.dart';
 
@@ -185,46 +186,93 @@ class _RouteEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
     final snapshot = controller.snapshot;
-    final from = snapshot == null
-        ? 'Waiting for a live location'
+    final from = snapshot == null ||
+            !snapshot.latitudeDeg.isFinite ||
+            !snapshot.longitudeDeg.isFinite
+        ? 'Acquiring current fix...'
         : '${_coordinate(snapshot.latitudeDeg)}, ${_coordinate(snapshot.longitudeDeg)}';
     final to = controller.destination == null
-        ? 'Tap the map to set a destination'
+        ? 'Long-press map to set destination'
         : '${_coordinate(controller.destination!.latitude)}, ${_coordinate(controller.destination!.longitude)}';
+    final distanceM = controller.distanceToDestinationMeters;
+    final distanceText = distanceM == null
+        ? null
+        : distanceM >= 1000
+            ? '${(distanceM / 1000).toStringAsFixed(2)} km'
+            : '${distanceM.round()} m';
+    final speedMps = snapshot?.speedMps ?? 0;
+    final etaText = (distanceM != null && speedMps > 1.2)
+        ? '${(distanceM / speedMps / 60).ceil()} min'
+        : null;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(children: [
-              _RouteRow(
-                  icon: Icons.location_on_rounded,
-                  color: _blue,
-                  label: 'FROM',
-                  value: from),
-              const SizedBox(height: 10),
-              _RouteRow(
-                  icon: Icons.location_on_rounded,
-                  color: _red,
-                  label: 'TO',
-                  value: to),
-            ]),
-          ),
-          const SizedBox(width: 12),
-          Material(
-            color: _panelLight,
-            borderRadius: BorderRadius.circular(20),
-            child: IconButton(
-              tooltip: 'Swap route endpoints',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(
-                        'The live current location remains the route origin.')),
-              ),
-              icon: const Icon(Icons.swap_vert_rounded, size: 34),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _panel,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: _panelLight),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(children: [
+                    _RouteRow(
+                      icon: Icons.my_location_rounded,
+                      color: _blue,
+                      label: 'ORIGIN (LIVE)',
+                      value: from,
+                    ),
+                    const SizedBox(height: 8),
+                    _RouteRow(
+                      icon: Icons.location_on_rounded,
+                      color: _red,
+                      label: 'DESTINATION',
+                      value: to,
+                    ),
+                  ]),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  children: [
+                    Material(
+                      color: _panelLight,
+                      borderRadius: BorderRadius.circular(16),
+                      child: IconButton(
+                        tooltip: 'Clear destination',
+                        icon: const Icon(Icons.close_rounded,
+                            color: Colors.white70, size: 26),
+                        onPressed: controller.clearDestination,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-        ],
+            if (distanceText != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Distance: $distanceText',
+                      style: const TextStyle(
+                          color: _blue,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13)),
+                  if (etaText != null)
+                    Text('Est. Time: $etaText',
+                        style: const TextStyle(
+                            color: Colors.greenAccent,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13)),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -267,13 +315,55 @@ class _RouteRow extends StatelessWidget {
       );
 }
 
-class _NavigationMap extends StatelessWidget {
+class _NavigationMap extends StatefulWidget {
   const _NavigationMap({required this.snapshot});
   final TelemetrySnapshot? snapshot;
 
   @override
+  State<_NavigationMap> createState() => _NavigationMapState();
+}
+
+class _NavigationMapState extends State<_NavigationMap> {
+  final MapController _mapController = MapController();
+  NavigationMode? _lastMode;
+
+  @override
+  void didUpdateWidget(covariant _NavigationMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final snapshot = widget.snapshot;
+    final controller = context.read<NavigationController>();
+
+    // Tactile haptic feedback on tunnel outage transition
+    if (snapshot != null && _lastMode != null && snapshot.mode != _lastMode) {
+      if (snapshot.mode == NavigationMode.deadReckoning) {
+        HapticFeedback.heavyImpact();
+      } else if (snapshot.mode == NavigationMode.gnssAidedIns) {
+        HapticFeedback.mediumImpact();
+      }
+    }
+    _lastMode = snapshot?.mode;
+
+    // Auto-follow vehicle position
+    if (snapshot != null &&
+        snapshot.latitudeDeg.isFinite &&
+        snapshot.longitudeDeg.isFinite &&
+        controller.autoFollow) {
+      final current = LatLng(snapshot.latitudeDeg, snapshot.longitudeDeg);
+      final currentZoom = _mapController.camera.zoom;
+      final targetZoom = currentZoom < 14 ? 17.0 : currentZoom;
+      _mapController.move(current, targetZoom);
+      if (controller.headingUp) {
+        _mapController.rotate(360 - snapshot.headingDeg);
+      } else {
+        _mapController.rotate(0);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = context.watch<NavigationController>();
+    final snapshot = widget.snapshot;
     final latitude = snapshot?.latitudeDeg;
     final longitude = snapshot?.longitudeDeg;
     final hasPosition =
@@ -281,13 +371,17 @@ class _NavigationMap extends StatelessWidget {
     final current = hasPosition ? LatLng(latitude!, longitude!) : null;
     final destination = controller.destination;
     final mapCenter = current ?? const LatLng(20.5937, 78.9629);
+
     final markers = <Marker>[
       if (current != null)
         Marker(
           point: current,
           width: 66,
           height: 66,
-          child: const PulsingLocationMarker(),
+          child: PulsingLocationMarker(
+            headingDeg: snapshot?.headingDeg ?? 0,
+            isDeadReckoning: snapshot?.mode == NavigationMode.deadReckoning,
+          ),
         ),
       if (destination != null)
         Marker(
@@ -297,32 +391,139 @@ class _NavigationMap extends StatelessWidget {
           child: const Icon(Icons.location_on_rounded, color: _red, size: 52),
         ),
     ];
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: Stack(children: [
+          // Tactical dark grid fallback (underneath map tiles when offline in tunnels)
+          Positioned.fill(
+            child: const CustomPaint(painter: _TacticalGridPainter()),
+          ),
           FlutterMap(
+            mapController: _mapController,
             options: MapOptions(
               initialCenter: mapCenter,
               initialZoom: current == null ? 4.3 : 17,
-              onTap: (_, point) => controller.setDestination(point),
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture) controller.setAutoFollow(false);
+              },
+              onLongPress: (_, point) => controller.setDestination(point),
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.meridian.idr',
               ),
+              // Breadcrumb trail showing vehicle dead-reckoning trajectory
+              if (controller.trajectoryHistory.length >= 2)
+                PolylineLayer(polylines: [
+                  Polyline(
+                    points: controller.trajectoryHistory,
+                    strokeWidth: 4.5,
+                    color: (snapshot?.mode == NavigationMode.deadReckoning
+                            ? const Color(0xFFFF9100)
+                            : _blue)
+                        .withValues(alpha: 0.75),
+                  ),
+                ]),
+              // Destination routing line
               if (current != null && destination != null)
                 PolylineLayer(polylines: [
                   Polyline(
-                      points: [current, destination],
-                      strokeWidth: 7,
-                      color: _blue),
+                    points: [current, destination],
+                    strokeWidth: 5,
+                    color: const Color(0xFF00E5FF),
+                  ),
                 ]),
               MarkerLayer(markers: markers),
             ],
           ),
+
+          // Floating Action Controls: Recenter, Heading-Up, and Quick Outage Simulator
+          Positioned(
+            right: 14,
+            bottom: 84,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Quick Outage Simulator toggle button
+                Material(
+                  color: controller.gnssEnabled ? _panel : _red,
+                  elevation: 4,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: controller.gnssEnabled
+                        ? 'Simulate Tunnel (Disable GNSS)'
+                        : 'Restore GNSS Aiding',
+                    icon: Icon(
+                      controller.gnssEnabled
+                          ? Icons.gps_off_rounded
+                          : Icons.gps_fixed_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                    onPressed: () =>
+                        controller.setGnssEnabled(!controller.gnssEnabled),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Heading-Up vs North-Up compass mode
+                Material(
+                  color: _panel,
+                  elevation: 4,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: controller.headingUp
+                        ? 'Heading-Up Navigation (Active)'
+                        : 'North-Up Map (Active)',
+                    icon: Icon(
+                      controller.headingUp
+                          ? Icons.navigation_rounded
+                          : Icons.explore_rounded,
+                      color: controller.headingUp ? _blue : Colors.white70,
+                      size: 22,
+                    ),
+                    onPressed: () {
+                      controller.toggleHeadingUp();
+                      if (!controller.headingUp) {
+                        _mapController.rotate(0);
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Recenter button
+                Material(
+                  color: controller.autoFollow ? _panelLight : _blue,
+                  elevation: 4,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Recenter to current location',
+                    icon: Icon(
+                      Icons.my_location_rounded,
+                      color: controller.autoFollow ? Colors.white60 : Colors.white,
+                      size: 24,
+                    ),
+                    onPressed: () {
+                      controller.setAutoFollow(true);
+                      if (current != null) {
+                        _mapController.move(
+                          current,
+                          math.max(16.0, _mapController.camera.zoom),
+                        );
+                        if (controller.headingUp && snapshot != null) {
+                          _mapController.rotate(360 - snapshot.headingDeg);
+                        }
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           if (!hasPosition)
             Positioned(
               left: 12,
@@ -341,7 +542,7 @@ class _NavigationMap extends StatelessWidget {
               child: _StatsBar(snapshot: snapshot)),
           const Positioned(
             right: 14,
-            bottom: 92,
+            bottom: 60,
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -349,12 +550,12 @@ class _NavigationMap extends StatelessWidget {
                   borderRadius: BorderRadius.all(Radius.circular(6)),
                 ),
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  padding: EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   child: Text(
                     '© OpenStreetMap contributors',
                     style: TextStyle(
                       color: Color(0xFFE7EDF5),
-                      fontSize: 10,
+                      fontSize: 9,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -381,36 +582,50 @@ class _WaitingForPosition extends StatelessWidget {
   final String? error;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xE617191D),
-          borderRadius: BorderRadius.circular(18),
+  Widget build(BuildContext context) {
+    final isPermissionIssue =
+        error?.toLowerCase().contains('permission') == true ||
+        status.toLowerCase().contains('permission') == true ||
+        status.toLowerCase().contains('settings') == true;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xE617191D),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _panelLight),
+      ),
+      child: Row(children: [
+        const SizedBox(
+          height: 22,
+          width: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.5),
         ),
-        child: Row(children: [
-          const SizedBox(
-            height: 22,
-            width: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.5),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Acquiring location',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              Text(error ?? status,
+                  style: TextStyle(
+                    color: error == null ? Colors.white70 : _red,
+                    fontSize: 12,
+                  )),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Acquiring location',
-                    style: TextStyle(fontWeight: FontWeight.w800)),
-                Text(error ?? status,
-                    style: TextStyle(
-                      color: error == null ? Colors.white70 : _red,
-                      fontSize: 12,
-                    )),
-              ],
-            ),
+        ),
+        if (isPermissionIssue)
+          TextButton(
+            onPressed: Geolocator.openAppSettings,
+            child: const Text('SETTINGS',
+                style: TextStyle(color: _blue, fontWeight: FontWeight.w700)),
           ),
-        ]),
-      );
+      ]),
+    );
+  }
 }
 
 class _StatsBar extends StatelessWidget {
@@ -418,41 +633,59 @@ class _StatsBar extends StatelessWidget {
   final TelemetrySnapshot? snapshot;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        decoration: BoxDecoration(
-            color: const Color(0xE6222429),
-            borderRadius: BorderRadius.circular(22)),
-        child: Row(children: [
-          _Stat(
-              label: 'Speed',
-              value: snapshot == null
-                  ? '—'
-                  : '${snapshot!.speedMps.toStringAsFixed(1)} m/s'),
-          const _Divider(),
-          _Stat(label: 'Accuracy', value: _meters(snapshot?.accuracyM)),
-          const _Divider(),
-          _Stat(
-              label: 'Heading',
-              value:
-                  snapshot == null ? '—' : '${snapshot!.headingDeg.round()}°'),
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final controller = context.watch<NavigationController>();
+    final speed = snapshot?.speedMps;
+    final speedDisplay = speed == null
+        ? '—'
+        : controller.speedInKmh
+            ? '${(speed * 3.6).round()} km/h'
+            : '${speed.toStringAsFixed(1)} m/s';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+          color: const Color(0xE61E2127),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: _panelLight)),
+      child: Row(children: [
+        _Stat(
+          label: 'Speed (${controller.speedInKmh ? 'km/h' : 'm/s'})',
+          value: speedDisplay,
+          onTap: controller.toggleSpeedUnit,
+        ),
+        const _Divider(),
+        _Stat(label: 'Accuracy', value: _meters(snapshot?.accuracyM)),
+        const _Divider(),
+        _Stat(
+          label: 'Heading',
+          value: snapshot == null ? '—' : '${snapshot!.headingDeg.round()}°',
+          onTap: controller.toggleHeadingUp,
+        ),
+      ]),
+    );
+  }
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({required this.label, required this.value});
+  const _Stat({required this.label, required this.value, this.onTap});
   final String label;
   final String value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Expanded(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
           child: Column(children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
-        const SizedBox(height: 3),
-        Text(value,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 19)),
-      ]));
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            const SizedBox(height: 3),
+            Text(value,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          ]),
+        ),
+      );
 }
 
 class _Divider extends StatelessWidget {
@@ -468,26 +701,84 @@ class _DeadReckoningStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-            color: const Color(0xE617191D),
-            borderRadius: BorderRadius.circular(18)),
+          color: const Color(0xF2161A22),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFF9100), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF9100).withValues(alpha: 0.2),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: Row(children: [
-          const Icon(Icons.route_rounded, color: _red),
-          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: Color(0x33FF9100),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.sync_problem_rounded,
+                color: Color(0xFFFF9100), size: 22),
+          ),
+          const SizedBox(width: 12),
           Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Row(
                   children: [
-                const Text('DEAD RECKONING',
-                    style: TextStyle(fontWeight: FontWeight.w800)),
+                    Text('DEAD RECKONING ACTIVE',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                          letterSpacing: 1.1,
+                          color: Color(0xFFFF9100),
+                        )),
+                    SizedBox(width: 6),
+                    Text('• TUNNEL',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white70,
+                            fontSize: 11)),
+                  ],
+                ),
+                const SizedBox(height: 2),
                 Text(
-                    '${_duration(snapshot.deadReckoningElapsed)}  •  ${snapshot.deadReckoningDistanceM.toStringAsFixed(1)} m  •  drift ${_meters(snapshot.positionErrorM)}',
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12)),
-              ])),
+                  '${_duration(snapshot.deadReckoningElapsed)} elapsed  •  ${snapshot.deadReckoningDistanceM.toStringAsFixed(1)} m  •  drift ${_meters(snapshot.positionErrorM)}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
         ]),
       );
+}
+
+class _TacticalGridPainter extends CustomPainter {
+  const _TacticalGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0xFF0D1017));
+    final gridPaint = Paint()
+      ..color = const Color(0xFF1B2230)
+      ..strokeWidth = 1.0;
+    const spacing = 36.0;
+    for (double x = 0; x < size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    for (double y = 0; y < size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class DeveloperModeScreen extends StatelessWidget {
@@ -781,7 +1072,11 @@ class MoreOptionsScreen extends StatelessWidget {
       MeridianTopBar(title: 'MORE OPTIONS', onSearch: () {}),
       Expanded(
           child: ListView(padding: const EdgeInsets.all(20), children: [
-        _MoreOption(icon: Icons.settings_outlined, label: 'Settings'),
+        _MoreOption(
+          icon: Icons.settings_outlined,
+          label: 'Settings & Display',
+          onTap: () => _showSettingsSheet(context, controller),
+        ),
         _MoreOption(
             icon: Icons.ios_share_rounded,
             label: 'Export Trip Data / Logs',
@@ -799,9 +1094,151 @@ class MoreOptionsScreen extends StatelessWidget {
                     const SnackBar(content: Text('Saved log path copied.')));
               }
             }),
-        _MoreOption(icon: Icons.help_outline_rounded, label: 'About & Help'),
+        _MoreOption(
+          icon: Icons.help_outline_rounded,
+          label: 'About & System Overview',
+          onTap: () => _showAboutDialog(context),
+        ),
       ])),
     ]);
+  }
+
+  void _showSettingsSheet(
+      BuildContext context, NavigationController controller) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _panelLight,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text('NAVIGATION SETTINGS',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: _blue,
+                      letterSpacing: 1.1)),
+              const SizedBox(height: 16),
+              SwitchListTile(
+                title: const Text('Speedometer in km/h'),
+                subtitle: Text(
+                  controller.speedInKmh
+                      ? 'Displaying km/h (Standard)'
+                      : 'Displaying m/s (Raw telemetry)',
+                  style: const TextStyle(fontSize: 12, color: Colors.white60),
+                ),
+                value: controller.speedInKmh,
+                activeThumbColor: _blue,
+                onChanged: (_) {
+                  controller.toggleSpeedUnit();
+                  setModalState(() {});
+                },
+              ),
+              SwitchListTile(
+                title: const Text('Camera Auto-Follow'),
+                subtitle: const Text(
+                  'Keep vehicle centered on the navigation map',
+                  style: TextStyle(fontSize: 12, color: Colors.white60),
+                ),
+                value: controller.autoFollow,
+                activeThumbColor: _blue,
+                onChanged: (val) {
+                  controller.setAutoFollow(val);
+                  setModalState(() {});
+                },
+              ),
+              SwitchListTile(
+                title: const Text('Heading-Up Mode'),
+                subtitle: const Text(
+                  'Rotate map to match vehicle driving direction',
+                  style: TextStyle(fontSize: 12, color: Colors.white60),
+                ),
+                value: controller.headingUp,
+                activeThumbColor: _blue,
+                onChanged: (_) {
+                  controller.toggleHeadingUp();
+                  setModalState(() {});
+                },
+              ),
+              if (controller.destination != null) ...[
+                const Divider(color: _panelLight),
+                ListTile(
+                  leading: const Icon(Icons.close_rounded, color: _red),
+                  title: const Text('Clear Active Route',
+                      style: TextStyle(color: _red)),
+                  onTap: () {
+                    controller.clearDestination();
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _panel,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Row(
+          children: [
+            Icon(Icons.navigation_rounded, color: _blue, size: 28),
+            SizedBox(width: 10),
+            Text('MERIDIAN IDR',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Intelligent Dead Reckoning System',
+              style: TextStyle(fontWeight: FontWeight.w700, color: _blue),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Designed for continuous vehicle navigation during complete GNSS blackouts (underground tunnels, underpasses, multi-level basements, dense urban canyons).\n\n'
+              '• Mount-Independent Kinematics\n'
+              '• 1D CNN Neural Velocity Prior\n'
+              '• Zero-Velocity Updates (ZUPT) & Gyro Bias Estimation\n'
+              '• Smooth GNSS Reacquisition Blending\n\n'
+              'SIH Problem Statement 26168 (ISRO)',
+              style: TextStyle(
+                  fontSize: 13, color: Colors.white70, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CLOSE', style: TextStyle(color: _blue)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -904,7 +1341,15 @@ class _PanelCard extends StatelessWidget {
 }
 
 class PulsingLocationMarker extends StatefulWidget {
-  const PulsingLocationMarker({super.key});
+  const PulsingLocationMarker({
+    super.key,
+    this.headingDeg = 0.0,
+    this.isDeadReckoning = false,
+  });
+
+  final double headingDeg;
+  final bool isDeadReckoning;
+
   @override
   State<PulsingLocationMarker> createState() => _PulsingLocationMarkerState();
 }
@@ -915,6 +1360,7 @@ class _PulsingLocationMarkerState extends State<PulsingLocationMarker>
     vsync: this,
     duration: const Duration(milliseconds: 1300),
   )..repeat();
+
   @override
   void dispose() {
     _controller.dispose();
@@ -923,29 +1369,72 @@ class _PulsingLocationMarkerState extends State<PulsingLocationMarker>
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) => CustomPaint(
-            painter: _LocationMarkerPainter(_controller.value),
-            child: const SizedBox.expand(),
-          ));
+        animation: _controller,
+        builder: (context, child) => CustomPaint(
+          painter: _LocationMarkerPainter(
+            progress: _controller.value,
+            headingDeg: widget.headingDeg,
+            isDeadReckoning: widget.isDeadReckoning,
+          ),
+          child: const SizedBox.expand(),
+        ),
+      );
 }
 
 class _LocationMarkerPainter extends CustomPainter {
-  const _LocationMarkerPainter(this.progress);
+  const _LocationMarkerPainter({
+    required this.progress,
+    required this.headingDeg,
+    required this.isDeadReckoning,
+  });
+
   final double progress;
+  final double headingDeg;
+  final bool isDeadReckoning;
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
+    final markerColor = isDeadReckoning ? const Color(0xFFFF9100) : _blue;
+
     final pulse = Paint()
-      ..color = _blue.withValues(alpha: 0.35 * (1 - progress));
+      ..color = markerColor.withValues(alpha: 0.35 * (1 - progress));
     canvas.drawCircle(center, size.width * (0.2 + progress * 0.28), pulse);
-    canvas.drawCircle(center, 10, Paint()..color = _blue);
-    canvas.drawCircle(center, 5, Paint()..color = Colors.white);
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(headingDeg * math.pi / 180.0);
+
+    final arrow = Path()
+      ..moveTo(0, -20)
+      ..lineTo(-11, 10)
+      ..lineTo(0, 3)
+      ..lineTo(11, 10)
+      ..close();
+
+    canvas.drawPath(
+      arrow,
+      Paint()
+        ..color = markerColor
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawPath(
+      arrow,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+    canvas.restore();
+
+    canvas.drawCircle(center, 4, Paint()..color = Colors.white);
   }
 
   @override
   bool shouldRepaint(covariant _LocationMarkerPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+      oldDelegate.progress != progress ||
+      oldDelegate.headingDeg != headingDeg ||
+      oldDelegate.isDeadReckoning != isDeadReckoning;
 }
 
 class _RadarRoutePainter extends CustomPainter {

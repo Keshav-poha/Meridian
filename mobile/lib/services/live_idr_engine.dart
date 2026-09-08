@@ -74,6 +74,8 @@ class LiveIdrEngine implements IdrEngine {
   Axis3 _gyroscope = const Axis3(0, 0, 0);
   Axis3 _magnetometer = const Axis3(0, 0, 0);
   double _headingDegrees = 0;
+  double _gyroYawBiasRps = 0;
+  bool _hasAbsoluteHeading = false;
   double _speedMps = 0;
   double _modelSpeedMps = 0;
   bool _velocityModelTrusted = false;
@@ -493,44 +495,65 @@ class LiveIdrEngine implements IdrEngine {
       gnssReportsMotion: gnssReportsMotion,
       vehicleMotionArmed: _vehicleMotionArmed,
       externalMotionAnomaly: _motionAnomaly,
+      currentSpeedMps: _speedMps,
     );
     final mode = _navigationMode(freshFix, now);
-    final insPropagationReady = mode == NavigationMode.deadReckoning &&
-        _vehicleMotionLatch.armed &&
+    final isDrMode = mode == NavigationMode.deadReckoning || !_gnssEnabled;
+    final insPropagationReady = isDrMode &&
         !_stationary &&
         inferred != null &&
-        inferred.mountCalibrated &&
-        inferred.sensorsFresh &&
-        !inferred.mountDegraded &&
-        !inferred.motionAnomaly;
-    // In GNSS-aided mode, GNSS speed is the measured reference. The CNN is
-    // reserved for a valid, calibrated blackout window rather than overriding
-    // a good satellite measurement with a model extrapolation.
-    _speedMps = gnssReportsMotion
-        ? _lastGoodGnss!.speed
-        : insPropagationReady
-            ? (_insSpeedFilter.propagate(
-                  forwardAccelerationMps2: inferred.forwardAccelerationMps2,
-                  dtSeconds: dt,
-                  cnnSpeedMps: _velocityModelTrusted ? _modelSpeedMps : null,
-                  cnnTrusted: _velocityModelTrusted,
-                ) ??
-                0.0)
-            : 0.0;
+        inferred.sensorsFresh;
+
+    // Zero-Velocity Update (ZUPT): immediately stop speed when vehicle is at rest.
+    // In GNSS-aided mode, GNSS speed is the primary reference.
+    // During dead reckoning or when GNSS is disabled, propagate smoothly from inertial
+    // dynamic acceleration and the speed estimator.
+    if (_stationary) {
+      _speedMps = 0.0;
+      _insSpeedFilter.setZeroVelocity();
+      _vehicleMotionLatch.disarm();
+    } else if (gnssReportsMotion) {
+      _speedMps = _lastGoodGnss!.speed;
+    } else if (insPropagationReady) {
+      _speedMps = _insSpeedFilter.propagate(
+            forwardAccelerationMps2: inferred.forwardAccelerationMps2,
+            dtSeconds: dt,
+            cnnSpeedMps: _velocityModelTrusted ? _modelSpeedMps : null,
+            cnnTrusted: _velocityModelTrusted,
+          ) ??
+          0.0;
+    } else {
+      _speedMps = 0.0;
+    }
 
     final sourceHeading =
         freshFix && _lastGoodGnss != null && _hasUsableCourse(_lastGoodGnss!)
             ? _lastGoodGnss!.heading
             : null;
-    // Never integrate raw phone-frame Z here. The estimator exposes only the
-    // vehicle-frame yaw rate after its mount transform is trustworthy.
+    // Mount-independent vertical yaw rate integration:
+    // inferred.vehicleYawRateRps is the projection of angular velocity onto the
+    // gravity vector (omega dot g_unit), which is rotation-invariant in the horizontal plane.
     if (sourceHeading != null) {
       _headingDegrees = sourceHeading;
-    } else if (inferred != null &&
-        inferred.mountCalibrated &&
-        inferred.sensorsFresh &&
-        !inferred.mountDegraded) {
-      _headingDegrees += inferred.vehicleYawRateRps * dt * 180 / math.pi;
+      _hasAbsoluteHeading = true;
+    } else if (!_stationary && inferred != null && inferred.sensorsFresh) {
+      // Compensate for gyro zero-rate bias and deadband tiny noise
+      final uncalibratedYawRate = inferred.vehicleYawRateRps;
+      final correctedYawRate = uncalibratedYawRate - _gyroYawBiasRps;
+      if (correctedYawRate.abs() > 0.003) {
+        _headingDegrees += correctedYawRate * dt * 180 / math.pi;
+      }
+    } else if (_stationary && inferred != null && inferred.sensorsFresh) {
+      // Online gyro bias estimator during stationary periods (ZUPT):
+      // Slowly learn the zero-rate yaw bias using an exponential moving average
+      _gyroYawBiasRps =
+          0.95 * _gyroYawBiasRps + 0.05 * inferred.vehicleYawRateRps;
+    } else if (!_hasAbsoluteHeading) {
+      final magHeading = _computeMagneticHeading();
+      if (magHeading != null && magHeading.isFinite) {
+        _headingDegrees = magHeading;
+        _hasAbsoluteHeading = true;
+      }
     }
     _headingDegrees %= 360;
     if (_headingDegrees < 0) _headingDegrees += 360;
@@ -792,20 +815,18 @@ class LiveIdrEngine implements IdrEngine {
     }
     final reasons = <String>[];
     var confidence = inferred.confidence;
-    if (!_vehicleMotionArmed) {
+    if (_gnssEnabled && !_vehicleMotionArmed) {
       confidence = 0;
-      reasons.add('awaiting GNSS-confirmed vehicle motion');
+      reasons.add('awaiting vehicle motion');
     }
     if (_stationary) {
       confidence = 0;
-      reasons.add('stationary gate');
+      reasons.add('stationary (ZUPT)');
     }
     if (_motionGate.inShockCooldown || inferred.motionAnomaly) {
       confidence = 0;
-      reasons.add('shock / mount-motion cooldown');
+      reasons.add('shock / bump cooldown');
     }
-    if (inferred.mountDegraded) reasons.add('mount calibration degraded');
-    if (!inferred.mountCalibrated) reasons.add('mount calibration pending');
     if (!inferred.sensorsFresh) reasons.add('stale IMU channel');
     if (!inferred.quality.isInDistribution) {
       reasons.add('model input out of distribution');
@@ -816,7 +837,7 @@ class LiveIdrEngine implements IdrEngine {
     }
     _predictionConfidence = confidence.clamp(0.0, 1.0).toDouble();
     _predictionConfidenceReason = reasons.isEmpty
-        ? 'Calibrated vehicle-frame IMU prediction'
+        ? 'Mount-independent vehicle-frame IMU prediction'
         : reasons.join(' • ');
   }
 
@@ -832,6 +853,30 @@ class LiveIdrEngine implements IdrEngine {
             math.sin(dLon / 2) *
             math.sin(dLon / 2);
     return 2 * earthRadiusM * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double? _computeMagneticHeading() {
+    final ax = _accelerometer.x;
+    final ay = _accelerometer.y;
+    final az = _accelerometer.z;
+    final mx = _magnetometer.x;
+    final my = _magnetometer.y;
+    final mz = _magnetometer.z;
+    final normA = math.sqrt(ax * ax + ay * ay + az * az);
+    final normM = math.sqrt(mx * mx + my * my + mz * mz);
+    if (normA < 1.0 || normM < 1.0) return null;
+
+    final roll = math.atan2(ay, az);
+    final pitch = math.atan2(-ax, math.sqrt(ay * ay + az * az));
+
+    final bx = mx * math.cos(pitch) + mz * math.sin(pitch);
+    final by = mx * math.sin(roll) * math.sin(pitch) +
+        my * math.cos(roll) -
+        mz * math.sin(roll) * math.cos(pitch);
+
+    var heading = math.atan2(-by, bx) * 180 / math.pi;
+    if (heading < 0) heading += 360;
+    return heading % 360;
   }
 
   @override
